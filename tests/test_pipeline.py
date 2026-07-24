@@ -13,9 +13,10 @@ def test_run_pipeline_survey(tmp_path):
     report = run_pipeline(goal, tmp_path)
     # 리포트 필수 필드
     for key in ("goal", "dimensions", "regime", "weights", "hydrostatics",
-                "passed", "mesh_file"):
+                "resistance", "passed", "mesh_file"):
         assert key in report, key
     assert report["regime"] == "DISPLACEMENT"
+    assert report["resistance"]["total"] > 0
     # 산출물 파일 존재
     assert (tmp_path / report["mesh_file"]).exists()
     assert (tmp_path / "report.json").exists()

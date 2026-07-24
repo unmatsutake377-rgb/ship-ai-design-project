@@ -79,3 +79,19 @@ def test_michell_magnitude_band():
     s_approx = 4.0 * (0.4 + 2 * 0.25) * 0.75  # 개략 침수면적 [m²]
     cw = rw / (0.5 * 1025.0 * v ** 2 * s_approx)
     assert 4e-4 < cw < 4e-3
+
+
+def test_total_resistance_report():
+    from src.ai.hull_generator import generate_hull_mesh, solve_exponents
+    from src.core.types import MainDimensions
+    from src.physics.resistance import total_resistance
+
+    dims = MainDimensions(loa=4.0, beam=1.3, depth=0.48, draft_design=0.30,
+                          cb=0.50)
+    mesh = generate_hull_mesh(dims)
+    n, m = solve_exponents(dims.cb)
+    rep = total_resistance(mesh, dims, n, m, draft=0.20, speed=1.5)
+    assert rep.total == pytest.approx(rep.rf + rep.rw, rel=1e-9)
+    assert rep.effective_power == pytest.approx(rep.total * 1.5, rel=1e-9)
+    assert rep.rf > 0 and rep.rw > 0
+    assert rep.wetted_area > 0

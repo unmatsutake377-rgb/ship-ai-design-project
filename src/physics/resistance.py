@@ -7,10 +7,12 @@ Holtrop-Mennen 금지 — 20~300 m 상선 회귀식, USV 스케일 무효 (spec 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 import trimesh
 
+from src.core.types import MainDimensions
 from src.physics.hydrostatics import immersed_mesh, waterplane_properties
 
 RHO_SEAWATER = 1025.0
@@ -82,3 +84,34 @@ def michell_wave_resistance(loa: float, beam: float, draft_design: float,
     integrand = (p ** 2 + q ** 2) * z_int ** 2 * lam ** 2
     return float(4.0 * rho * G ** 2 / (np.pi * speed ** 2)
                  * np.trapezoid(integrand, us))
+
+
+@dataclass(frozen=True)
+class ResistanceReport:
+    speed: float
+    froude: float
+    reynolds: float
+    wetted_area: float
+    cf: float
+    form_factor: float
+    rf: float               # 마찰저항 [N]
+    rw: float               # 조파저항 [N]
+    total: float            # 전저항 = 소요 추력 [N]
+    effective_power: float  # Pe = R·V [W]
+
+
+def total_resistance(mesh: trimesh.Trimesh, dims: MainDimensions,
+                     n: float, m: float, draft: float,
+                     speed: float, rho: float = RHO_SEAWATER) -> ResistanceReport:
+    s_wet = wetted_surface(mesh, draft)
+    re = reynolds(speed, dims.loa)
+    cf = ittc_cf(re)
+    rf = frictional_resistance(speed, dims.loa, s_wet, rho)
+    rw = michell_wave_resistance(dims.loa, dims.beam, dims.draft_design,
+                                 n, m, draft, speed, rho)
+    total = rf + rw
+    return ResistanceReport(
+        speed=speed, froude=speed / math.sqrt(G * dims.loa), reynolds=re,
+        wetted_area=s_wet, cf=cf, form_factor=FORM_FACTOR,
+        rf=rf, rw=rw, total=total, effective_power=total * speed,
+    )
