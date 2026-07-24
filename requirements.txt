@@ -2,4 +2,5 @@ numpy
 pandas
 trimesh
 shapely
+mapbox_earcut
 pytest
