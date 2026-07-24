@@ -1,7 +1,7 @@
 # AI 기반 목적 지향형 선박 설계 & 시뮬레이션 파이프라인 — 설계 문서 (PoC)
 
-- 날짜: 2026-07-24
-- 상태: 사용자 설계 승인 완료
+- 날짜: 2026-07-24 (v2 — 적대적 설계 검토 반영)
+- 상태: v1 사용자 승인 → 독립 검토에서 결함 13건 발견 → v2 수정
 - 개발 환경: macOS (Apple Silicon), Python 3.13 (anaconda). ROS2/Gazebo 미설치.
 
 ## 1. 목적과 범위
@@ -13,15 +13,20 @@ End-to-End 파이프라인의 개념 증명(PoC). 타겟은 USV 및 소형 선�
 **프로젝트 성격: 학습 목적.** 조선해양공학(정역학→저항→동역학→자율운항)과
 로보틱스(ROS2)를 단계별로 배우는 순서에 맞춰 마일스톤을 구성한다.
 
+**Phase A의 명시적 범위 제한:** Phase A는 저속 배수량형 영역(Fn < 0.4)만 완전 지원한다.
+이는 저속 조사/관측용 USV(예: 4 m 선체, 1~2 m/s 순항)에 해당한다. 고속 USV가 주로
+운항하는 반배수량 영역(Fn 0.4~1.0)은 2차 사이클, 활주 영역은 Phase C. 이 제한은
+데모 시나리오 선정에 반영한다 — Phase A 데모는 저속 USV로 한다.
+
 ### 원안(AI 생성 프롬프트) 대비 변경 사항과 근거
 
 | 원안 | 변경 | 근거 |
 |---|---|---|
 | 6단계 동시 추진 | Phase A(순수 Python) → B(ROS2) → C(CFD/활주형) 순차 | 6단계는 PoC 하나가 아니라 연구 프로젝트 3개 분량. ROS2가 크리티컬 패스에 있으면 전체가 블로킹됨 |
-| Step 4가 선형 검증 담당 | 선형 검증은 Step 3(정역학) + Python Fossen 모델이 담당, ROS2/Gazebo는 자율운항 테스트베드로 재정의 | Gazebo 해양 플러그인은 사람이 넣어준 계수로 움직이는 단순화 모델 — 선형 우수성을 스스로 검증하지 못함 |
-| ROS2 즉시 구축 | Phase B에서 Docker + VRX(Virtual RobotX)로 구축 | macOS ARM은 ROS2 Tier 3 지원. 네이티브 설치 비추천. USV 시뮬레이션은 VRX 기성 스택 활용 |
-| 처음부터 Ship-D + MLP | 1단계는 수식 기반 파라메트릭 선형(Wigley 계열), AI 모델은 M5에서 교체 장착 | 파이프라인 관통이 먼저. AI 학습 실패가 전체를 멈추지 않게 함 |
-| 속도 체계 언급 없음 | Froude 수 기반 체계 디스패처를 core에 내장. 배수량형 먼저 구현, 활주형(Savitsky)은 2차 사이클 | 사용자 결정: "둘 다 지원". 경험식·저항식이 체계별로 완전히 다르므로 구조로 분리 |
+| Step 4가 선형 검증 담당 | 선형 검증은 정역학 + Python Fossen 모델 담당. ROS2/Gazebo는 자율운항 테스트베드로 재정의 | Gazebo 해양 플러그인은 외부에서 넣어준 계수로 움직임 — 선형 우수성을 스스로 검증 못함. (같은 이유로 Python 동역학 모델도 계수 산출 경로를 §2.4에 명시함) |
+| ROS2 즉시 구축 | Phase B에서 Docker + VRX(Virtual RobotX)로 구축 | macOS ARM은 ROS2 Tier 3 지원. USV 시뮬레이션은 VRX 기성 스택 활용 |
+| 처음부터 Ship-D + MLP | 1단계는 일반화 Wigley 파라메트릭 선형, AI 모델은 M5에서 교체 장착 | 파이프라인 관통이 먼저. AI 학습 실패가 전체를 멈추지 않게 함 |
+| 속도 체계 언급 없음 | 3체계 디스패처(배수량/반배수량/활주)를 core에 내장 | 사용자 결정 "둘 다 지원" + USV 현실 운항 영역이 반배수량대임을 반영 |
 
 ## 2. 아키텍처
 
@@ -30,65 +35,144 @@ End-to-End 파이프라인의 개념 증명(PoC). 타겟은 USV 및 소형 선�
 ```
 선박 ai 모델 프로젝트/
 ├── src/
-│   ├── core/           # GoalSpec, ShipDesign 데이터클래스 + Froude 체계 디스패처
-│   ├── ai/             # Step 1: 목적→치수 경험식 / Step 2: 치수→선형 생성기
-│   ├── physics/        # 정역학(trimesh), 저항(체계별), 동역학(Fossen 3자유도)
-│   ├── hitl/           # 점수 로깅(user_scores.csv) + PyTorch weighted loss
-│   └── sim_adapters/   # python_sim(Phase A) / ros2_export(Phase B, URDF/SDF 변환)
+│   ├── core/           # GoalSpec, ShipDesign 데이터클래스 + 3체계 디스패처 + Cb 도달범위 검증
+│   ├── ai/             # Step 1: 목적→치수 (소형선 비율 기반) / Step 2: 치수→선형 생성기
+│   ├── physics/        # weights(중량·KG), hydrostatics(정역학), resistance(저항),
+│   │                   # coefficients(동역학 계수 추정), dynamics(Fossen 3자유도)
+│   ├── hitl/           # 점수 로깅(user_scores.csv) + weighted loss (보조 신호, §5 M5b 참조)
+│   └── sim_adapters/   # python_sim: 유도·제어 + Fossen 시뮬 (Phase A)
+│                       # ros2_export: URDF/SDF + 유체계수 플러그인 파라미터 내보내기 (Phase B)
 ├── ros2_ws/            # Phase B 자리 (현재 README만)
-├── data/               # data_loader.py, Ship-D 실데이터, 합성 데이터
-├── tests/              # pytest — 해석해 기반 물리 검증
+├── data/               # data_loader.py, Ship-D 합성 데이터셋, 자체 생성 데이터
+├── tests/              # pytest — 해석해 + 공개 실험 데이터 벤치마크
 └── docs/
 ```
 
-핵심 설계 결정:
+### 2.1 core — 공용 타입과 디스패처
 
-1. **`core.ShipDesign`이 유일한 모듈 간 인터페이스.** ai ↛ physics ↛ ros2 직접 의존 금지.
-   선형 생성기를 파라메트릭→MLP→Diffusion으로 교체해도 다른 모듈 무변경.
-2. **선형 생성 2단 로켓.** M3까지는 L,B,T,Cb → 수식 선형(watertight STL).
-   M5에서 Ship-D 45파라미터 + MLP로 교체. Ship-D는 대형선 위주 분포이므로
-   USV 스케일 적용 시 무차원화/스케일링 전략을 M5에서 확정한다.
-3. **체계 디스패처 선행 내장.** Froude 수 < 0.4 → 배수량형 경로(구현),
-   그 이상 → 활주형 경로(Phase C까지 명시적 "미구현" 안내 후 중단, 조용한 오답 금지).
+- `GoalSpec`(목표 속도, 적재량, 용도), `ShipDesign`(치수 + 메쉬 + 중량/계수 일체)이
+  유일한 모듈 간 인터페이스. ai ↛ physics ↛ ros2 직접 의존 금지.
+- **3체계 디스패처:** 길이 Froude 수 Fn = V/√(gL)와 용적 Froude 수 Fn∇ = V/√(g·∇^(1/3)) 병용.
+  - Fn < 0.4 → 배수량형 (Phase A 구현)
+  - 0.4 ≤ Fn, Fn∇ < ~3 → 반배수량형 (2차 사이클: Compton/NPL 계열 회귀 + 트랜섬 선형)
+  - Fn∇ ≥ ~3 → 활주형 (Phase C: Savitsky)
+  - 미구현 체계는 명시적 안내 후 중단. 조용한 외삽 금지.
+- **Cb 도달범위 검증:** 선형 생성기가 낼 수 있는 Cb 범위를 core가 알고, Step 1 출력이
+  범위 밖이면 명시적으로 보고 (조용히 다른 형상을 내놓지 않음).
+
+### 2.2 ai — 치수 추정과 선형 생성
+
+- **Step 1 치수 추정:** 상선 경험식(Watson 등)은 2~8 m 스케일에서 무효. 대신
+  공개된 소형선/USV 제원 표(15~30행)로 만든 용도별 비율 밴드(L/B, B/T, Cb) 기반 산정.
+  출처를 코드 주석에 남긴다.
+- **Step 2 선형 생성 (2단 로켓):**
+  - 1단(M3): 일반화 Wigley 계열 y = (B/2)(1−|2x/L|ⁿ)(1−(z/T)ᵐ).
+    목표 Cp, Cm에서 지수 n, m을 역산. 도달 가능 Cb 범위를 문서화하고 core 검증 규칙으로 등록.
+    **한계 명시:** 뾰족한 선수미(트랜섬 없음) — 저속 배수량 영역에서만 대표성 있음.
+  - 2단(M5): Ship-D 45파라미터 + 학습 모델로 교체.
+  - 반배수량 지원 전에 트랜섬 선미 파라메트릭 계열(Wigley 선수부 + 프리즘 선미부) 추가 필요.
+
+### 2.3 physics — 중량, 정역학, 저항, 계수
+
+- **weights (신규 — v1의 최대 누락):** W = 구조중량(침수표면적 × 판재계수) +
+  추진·배터리(소요 파워 추정에서) + 적재량. 각 성분의 VCG 가정으로 KG 산출.
+  주어진 W에서 평형 흘수 T를 역산하고 건현을 확인한다 (T를 입력으로 고정하지 않음).
+- **hydrostatics:** trimesh로 배수량, KB, BM 계산. 필터 정의:
+  - 배수량 일치: |Δ − W| / W < 허용오차
+  - 복원성: GM = KB + BM − KG를 **밴드**로 판정 (GM > 0만이 아니라 GM/B 정상범위 —
+    너무 작으면 위험, 너무 크면 급격한 횡동요). 건현 최소값 확인.
+  - 리포트에 KB, BM, KG, GM, 건현 전부 기록 — 가정이 보이게.
+- **resistance:** Holtrop-Mennen은 20~300 m 상선 회귀식이라 USV 스케일에서 무효 — 사용 금지.
+  Phase A: ITTC-57 마찰 + 형상계수 + Michell 박선이론 조파저항.
+  Wigley는 Michell 이론의 표준 케이스라 공개 수조시험 데이터로 검증 가능 (§4 벤치마크).
+- **coefficients (신규):** Fossen 3자유도 계수 산출 경로 —
+  부가질량(Xu̇, Yv̇, Nṙ)은 단면 형상 기반 세장체/스트립 추정,
+  선형 미계수(Yv, Nr 등)는 Clarke 계열 회귀(대형선 회귀임을 리포트에 외삽 경고로 명시),
+  전진 감쇠는 자체 저항 곡선에서. 질량·Izz·CG는 weights 모듈에서.
+
+### 2.4 sim_adapters — 유도·제어·시뮬레이션
+
+- **python_sim (Phase A):** 차동 추력 USV 구성(러더 없음 — 전형적 USV 방식이자 모델 단순).
+  - 추력기 모델: 최대 추력 = 저항 기반 소요 추력 × 여유율, 포화 포함
+  - 유도: LOS(Line-of-Sight) 웨이포인트 유도
+  - 제어: 선수각 PID
+  - 출력: 궤적 플롯 + 거동 리포트
+- **ros2_export (Phase B):** URDF/SDF 기하·관성 + **유체계수 플러그인 파라미터**를 함께
+  내보낸다. URDF만으로는 유체역학이 전이되지 않음 — 어댑터의 본질은 계수 변환기.
+
+### 2.5 hitl — 역할 재정의
+
+사용자 점수(1~5)는 수십 개 규모 → 주 학습 신호가 될 수 없음.
+**주 학습 신호는 물리 파이프라인 자체** (샘플 선형 → 저항/GM 평가 → 라벨 자동 생성).
+HITL 점수는 보조 fine-tune/재순위 항으로만 사용. 로깅 인프라는 M1에서 구축.
 
 ## 3. 데이터 흐름 (Phase A 1회 실행)
 
 ```
 GoalSpec(속도, 적재량, 용도)
-  → [ai] 치수 추정 (경험식) + Froude 체계 판정
-  → [ai] 파라메트릭 선형 생성 → watertight 메쉬(STL)
-  → [physics] 정역학 필터: 배수량 일치, GM > 0
-       불합격 = 정상 필터링 결과. 어떤 수치가 왜 미달인지 리포트 (조용히 버리지 않음)
-  → [physics] 저항 추정 → 소요 추력
-  → [sim_adapters.python_sim] Fossen 3자유도 웨이포인트 추종 → 궤적 플롯 + 리포트
-  → [hitl] 사용자 1~5점 → user_scores.csv → weighted loss (재학습은 M5)
+  → [core] Fn, Fn∇ 계산 → 체계 판정 (미구현 체계면 명시적 중단)
+  → [ai] 소형선 비율 기반 치수 추정 (L, B, D, Cb 목표)
+  → [ai] 일반화 Wigley 선형 생성 (n, m 역산) → watertight 메쉬(STL)
+  → [physics.weights] 중량 W, KG 추정 → 평형 흘수 T 역산
+  → [physics.hydrostatics] 필터: 배수량 일치, GM 밴드, 건현
+       불합격 = 정상 필터링 결과. 어떤 수치가 왜 미달인지 리포트
+  → [physics.resistance] ITTC-57 + Michell → 저항 곡선 → 소요 추력·파워
+  → [physics.coefficients] Fossen 계수 세트 산출
+  → [sim_adapters.python_sim] LOS 유도 + PID + 차동추력 → 웨이포인트 추종 궤적 + 리포트
+  → [hitl] 사용자 1~5점 → user_scores.csv
 ```
 
 ## 4. 테스트 전략
 
-물리 코드는 "그럴듯한 오답"이 최대 위험이므로 해석해 기반 검증:
+물리 코드는 "그럴듯한 오답"이 최대 위험이므로 해석해 + 공개 실험 데이터로 검증:
 
 - 정역학: 직육면체 바지선(배수량·KB·BM·GM 손계산 가능) 기준값 비교
+- 중량/평형: 주어진 W에서 역산한 흘수로 다시 계산한 배수량이 W와 일치 (자기일관성)
 - 메쉬: 단위 정육면체·구의 부피/침수표면적
-- 동역학: 추력 0 → 정지 유지, 일정 추력 → 이론 종속도 수렴 (물리 불변량)
+- **저항 벤치마크 (신규):** Wigley 선형 잉여저항을 공개 수조시험/Michell 계산값과
+  Froude 수 2~3점에서 허용오차 내 비교 — 가장 오답 위험이 큰 모듈에 실측 기준 부여
+- 동역학: 추력 0 → 정지 유지, 일정 추력 → 이론 종속도 수렴, 대칭 선형의 직진 안정성
+- 조종성 sanity: 차동 추력 선회 반경이 선박 길이 대비 상식 범위
 - 데이터: Ship-D 스키마(45파라미터) 위반 데이터 거부 확인
 
-## 5. 마일스톤
+## 5. 마일스톤 (검토 반영 재분할)
 
 | # | 결과물 | 비고 |
 |---|---|---|
-| M1 | 디렉토리 구조 + core 타입 + data_loader(더미) + HITL 로깅 + pytest | 원안 Action Item 1~4 |
-| M2 | trimesh 정역학 + 바지선 해석해 테스트 통과 | |
-| M3 | 목적 입력→치수→선형→정역학 리포트 End-to-End CLI | 첫 관통 |
-| M4 | Fossen 3자유도 + 웨이포인트 추종 궤적 플롯 | |
-| M5 | Ship-D 실데이터 + MLP(Mac MPS) + weighted loss 연결 | Phase A.1 |
-| B | Docker ROS2/VRX + URDF 내보내기 어댑터 | 환경 결정 후 |
-| C | OpenFOAM 훅 + 활주형(Savitsky) 체계 | 설계만 선행 |
+| M1 | 디렉토리 구조 + core 타입/디스패처 + data_loader(더미) + HITL 로깅 + pytest | 원안 Action Item 1~4 |
+| M2 | weights + hydrostatics + 바지선/자기일관성 테스트 통과 | 중량 모델이 정역학보다 먼저 |
+| M3 | 치수 추정 + Wigley 생성 → End-to-End CLI (목적→메쉬→정역학 리포트) | 첫 관통 |
+| M3.5 | resistance (ITTC-57 + Michell) + Wigley 벤치마크 테스트 | |
+| M4a | coefficients (부가질량·미계수 추정) + 조종성 sanity 테스트 | v1에서 숨어있던 작업 |
+| M4b | LOS + PID + 차동추력 웨이포인트 시뮬 + 궤적 플롯 | |
+| M5a | Ship-D 합성 데이터셋 로더 + 45파라미터→형상 재구성 + 5척 렌더 확인 | 형상만 스케일 전이 |
+| M5b | 물리 라벨 기반 학습(surrogate/역모델, Mac MPS) + HITL 보조 신호 연결 | 성능 라벨은 자체 재계산 |
+| B | Docker ROS2/VRX + URDF/SDF·유체계수 내보내기 어댑터 | 환경 결정 후 |
+| C | 반배수량(트랜섬 계열 + Compton/NPL) → 활주형(Savitsky) → OpenFOAM 훅 | 설계만 선행 |
 
 의존성: numpy, pandas, trimesh, matplotlib, pytest (M1~M4), torch (M5부터).
 
 ## 6. 성공 기준 (PoC "완료"의 정의)
 
-Phase A 기준: 터미널에서 명령 한 줄로 목적 입력 → 물리적으로 타당한(GM>0, 배수량 일치)
-선형 메쉬와 검증 리포트, 웨이포인트 추종 궤적이 출력되고, 모든 pytest가 통과하며,
-사용자가 결과에 점수를 매기면 CSV에 누적되는 상태.
+Phase A 기준: 터미널에서 명령 한 줄로 **저속 USV 목적** 입력 → 물리적으로 타당한
+(배수량=중량, GM 밴드, 건현 통과) 선형 메쉬와 검증 리포트, 웨이포인트 추종 궤적이
+출력되고, 모든 pytest(해석해 + Wigley 벤치마크)가 통과하며, 사용자가 결과에
+점수를 매기면 CSV에 누적되는 상태.
+
+## 부록: v1 → v2 변경 요약 (검토 지적사항 대응표)
+
+| 지적 | 심각도 | 대응 |
+|---|---|---|
+| 2체계 분할이 반배수량 영역(USV 주 운항대) 누락 | HIGH | 3체계 디스패처 + Phase A 범위 명시(§1) |
+| 중량 모델 부재 → 배수량 일치 검사 정의 불가 | HIGH | physics.weights 신설, 평형 흘수 역산(§2.3) |
+| KG 부재 → GM 계산 불가 | HIGH | weights에서 KG 산출, GM 밴드 판정(§2.3) |
+| Fossen 계수 산출 경로 부재 | HIGH | physics.coefficients 신설 + M4a(§2.3) |
+| Wigley Cb 한계·트랜섬 부재 | HIGH | 지수 역산 + 도달범위 검증 + 한계 명시(§2.2) |
+| 저항식 미명명 (Holtrop은 스케일 무효) | HIGH/MED | ITTC-57 + Michell 명시, Holtrop 금지(§2.3) |
+| 추력기/유도/제어 모델 누락 | MED | 차동추력 + LOS + PID 명세(§2.4) |
+| 저항 모듈 벤치마크 부재 | MED | Wigley 실험 데이터 벤치마크(§4) |
+| M4/M5 과대 묶음 | MED | M3.5/M4a/M4b/M5a/M5b 분할(§5) |
+| M5 학습 신호 미정의 | MED | 물리 라벨 주 신호 + HITL 보조(§2.5) |
+| "Ship-D 실데이터" 오기 | MED | 합성 파라메트릭 데이터셋으로 정정, 형상만 전이(§5) |
+| 상선 경험식의 소형선 무효 | LOW | 소형선 비율 밴드 방식(§2.2) |
+| URDF만으로 유체역학 미전이 | LOW | 어댑터 산출물에 유체계수 포함(§2.4) |
