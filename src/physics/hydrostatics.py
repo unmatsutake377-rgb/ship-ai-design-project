@@ -137,7 +137,9 @@ def evaluate(mesh: trimesh.Trimesh, total_mass: float, kg: float,
     gm_ok = crit.gm_over_beam[0] <= gm / beam <= crit.gm_over_beam[1]
     fb_ok = freeboard / depth >= crit.freeboard_over_depth_min
 
-    checks = {"displacement": disp_ok, "gm_band": gm_ok, "freeboard": fb_ok}
+    # bool(): numpy bool_이 섞이면 JSON 직렬화가 깨진다
+    checks = {"displacement": bool(disp_ok), "gm_band": bool(gm_ok),
+              "freeboard": bool(fb_ok)}
     return HydrostaticReport(
         draft=draft, freeboard=freeboard,
         displacement_volume=vol, displacement_mass=vol * rho,

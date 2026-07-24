@@ -13,3 +13,4 @@ __pycache__/
 # Data artifacts (large files, downloaded datasets)
 data/shipd/
 *.stl
+outputs/
