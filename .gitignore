@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Data artifacts (large files, downloaded datasets)
+data/shipd/
+*.stl
