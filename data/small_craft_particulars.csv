@@ -1,0 +1,7 @@
+name,maker,category,loa_m,beam_m,draft_m,weight_light_kg,weight_full_kg,payload_kg,speed_max_ms,speed_cruise_ms,source_url,source_grade,cross_verified,collected_date,notes
+Otter,Maritime Robotics,survey,2.00,1.08,,62,92,30,2.31,1.03,https://www.maritimerobotics.com/otter,A,True,2026-07-26,만재중량=자중+최대탑재 계산값. 쌍동선. 순항 2kn(항속 20h 기준). 흘수 비공개
+Z-Boat 1800,Teledyne Oceanscience,survey,1.80,0.90,,30,50,20,2.06,1.54,https://www.teledynemarine.com/en-us/products/SiteAssets/Oceanscience/Z-Boat%201800-T%20Data%20Sheet-2021.pdf,A,True,2026-07-26,만재중량=자중+최대탑재 계산값. 표준형 기준(HS 변형 제외)
+SL20,OceanAlpha,survey,1.05,0.55,0.15,17,27,10,4.12,1.54,https://oceanalpha.com/product-item/sl20/,A,True,2026-07-26,만재중량=자중+최대탑재 계산값. 워터젯. 최대 8kn은 활주 영역(Fn 1.28)
+SL40,OceanAlpha,survey,1.65,0.55,0.15,42,67,25,5.14,1.54,https://oceanalpha.com/product-item/sl40/,A,True,2026-07-26,만재중량=자중+최대탑재 계산값. 워터젯. 최대 10kn은 활주 영역
+EchoBoat-160,Seafloor Systems,survey,1.70,0.80,,50,77,27,1.54,1.03,https://www.seafloorsystems.com/echoboat-160,A,True,2026-07-26,만재중량=자중+최대탑재 계산값. 구세대 자료(45kg)와 불일치 → 제조사 현행(50kg) 우선
+Apache 3 Pro,CHCNAV,survey,1.05,0.55,0.09,10,40,30,6.00,,https://www.chcnav.com/product-detail/apache3-pro-usv,A,True,2026-07-26,자중은 센서·배터리 제외 기준. 만재=자중+최대탑재 계산값. 최대 6 m/s는 활주 영역(Fn 1.87)

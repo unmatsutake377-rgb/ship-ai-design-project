@@ -66,10 +66,18 @@ def test_flag_impossible_weight():
 
 
 def test_flag_absurd_speed():
-    """Fn > 1.2 주장 → 활주형이거나 오기 → 플래그."""
-    # L=2.0: Fn 1.2 → v ≈ 5.3 m/s
-    flags = physics_flags(full_row(speed_max_ms=6.0))
+    """Fn > 3 주장 → 단위 오류 의심 (소형 활주정 물리 상한 밖) → 플래그."""
+    # L=2.0: Fn 3.0 → v ≈ 13.3 m/s
+    flags = physics_flags(full_row(speed_max_ms=15.0))
     assert any("속도" in f for f in flags)
+
+
+def test_fast_planing_boat_not_flagged():
+    """실재하는 활주 소형정 속도(Fn 1~3)는 오류 아님 — 통과해야 함."""
+    # SL20 실례: L=1.05, 8kn=4.12 m/s → Fn 1.28
+    flags = physics_flags(full_row(loa_m=1.05, beam_m=0.55, draft_m=0.15,
+                                   weight_full_kg=27.0, speed_max_ms=4.12))
+    assert not any("속도" in f for f in flags)
 
 
 def test_flag_absurd_ratio():
