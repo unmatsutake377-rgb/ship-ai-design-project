@@ -52,3 +52,24 @@ def test_explicit_propulsion_mass_replaces_fraction():
     assert est.total_mass == pytest.approx(
         est.structure_mass + 50.0 + 4.5, rel=1e-9
     )
+
+
+def test_lcg_izz_computed():
+    """분포모델 (오너 Q4): 추진계만 선미 → LCG 약간 선미, Izz 양수."""
+    est = estimate_weights(hull_area_m2=12.0, depth=0.5, payload_kg=100.0,
+                           propulsion_mass_kg=4.5, loa=4.0)
+    assert -0.2 < est.lcg < 0.0
+    assert est.izz > 0
+    assert est.izz >= 4.5 * (0.45 * 4.0) ** 2 * 0.9
+
+
+def test_trim_warning_flag():
+    """무거운 추진계가 선미에 몰리면 트림 경고."""
+    est = estimate_weights(12.0, 0.5, 100.0, propulsion_mass_kg=40.0, loa=4.0)
+    assert est.trim_warning
+
+
+def test_legacy_call_without_loa_degenerates_safely():
+    est = estimate_weights(12.0, 0.5, 100.0)
+    assert est.lcg == 0.0
+    assert not est.trim_warning
