@@ -53,3 +53,22 @@ def test_selection_is_lightest_adequate():
     sel = select_motors(required_thrust_n=29.2)
     adequate = df[2 * df["thrust_max_n"] >= THRUST_MARGIN * 29.2]
     assert sel.motor["weight_kg"] == adequate["weight_kg"].min()
+
+
+# ---------- 배터리 모델 (#18 설계 나선) ----------
+
+def test_battery_mass_exact():
+    """유효 40 W · 4 h: 전기 100 W → 500 Wh 필요 → 3.33 kg."""
+    from src.physics.propulsion import battery_mass
+
+    mass = battery_mass(effective_power_w=40.0, endurance_h=4.0)
+    expected = (40.0 / 0.40) * 4.0 / 0.8 / 150.0
+    assert mass == pytest.approx(expected, rel=1e-9)
+
+
+def test_battery_mass_scales_with_endurance():
+    from src.physics.propulsion import battery_mass
+
+    assert battery_mass(40.0, 8.0) == pytest.approx(
+        2.0 * battery_mass(40.0, 4.0), rel=1e-9
+    )

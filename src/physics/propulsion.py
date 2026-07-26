@@ -18,6 +18,23 @@ DEFAULT_CATALOG = Path(__file__).parent.parent.parent / "data" / "motor_catalog.
 THRUST_MARGIN = 2.0   # 총 장착 추력 / 소요 추력 최소비
 MOTOR_COUNT = 2       # 차동 추력 구성
 
+PROP_EFFICIENCY = 0.40         # 유효파워/전기입력 종합 효율 (소형 전동 개략)
+BATTERY_ENERGY_DENSITY = 150.0  # Li-ion 팩 [Wh/kg] (개략)
+BATTERY_USABLE_FRACTION = 0.8   # 방전 심도 여유
+
+
+def battery_mass(effective_power_w: float, endurance_h: float,
+                 efficiency: float = PROP_EFFICIENCY,
+                 energy_density: float = BATTERY_ENERGY_DENSITY,
+                 usable: float = BATTERY_USABLE_FRACTION) -> float:
+    """항속 요구를 채우는 배터리 질량 [kg].
+
+    전기입력 = 유효파워/효율, 필요 용량 = 입력×시간/사용가능비율.
+    """
+    electrical_w = effective_power_w / efficiency
+    required_wh = electrical_w * endurance_h / usable
+    return required_wh / energy_density
+
 
 class NoSuitableMotorError(ValueError):
     """카탈로그의 어떤 모터로도 소요 추력을 못 채움."""

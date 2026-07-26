@@ -42,3 +42,13 @@ def test_assumptions_recorded():
 def test_payload_zero_still_positive_weight():
     est = estimate_weights(hull_area_m2=12.0, depth=0.5, payload_kg=0.0)
     assert est.total_mass > 0
+
+
+def test_explicit_propulsion_mass_replaces_fraction():
+    """설계 나선용: 실측 추진계 중량 지정 시 고정비율 미사용."""
+    est = estimate_weights(hull_area_m2=10.0, depth=0.5, payload_kg=50.0,
+                           propulsion_mass_kg=4.5)
+    assert est.propulsion_mass == 4.5
+    assert est.total_mass == pytest.approx(
+        est.structure_mass + 50.0 + 4.5, rel=1e-9
+    )

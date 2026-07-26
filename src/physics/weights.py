@@ -30,11 +30,20 @@ class WeightEstimate:
     assumptions: dict
 
 
-def estimate_weights(hull_area_m2: float, depth: float,
-                     payload_kg: float) -> WeightEstimate:
+def estimate_weights(hull_area_m2: float, depth: float, payload_kg: float,
+                     propulsion_mass_kg: float | None = None) -> WeightEstimate:
+    """중량·KG 추정.
+
+    propulsion_mass_kg 지정 시 실측(선택 모터+배터리 계산값)을 사용 —
+    설계 나선 반복용. 미지정 시 고정비율 개략(초기 추정용).
+    """
     structure = hull_area_m2 * AREAL_DENSITY_KG_M2 * OUTFIT_FACTOR
-    total = (structure + payload_kg) / (1.0 - PROPULSION_FRACTION)
-    propulsion = PROPULSION_FRACTION * total
+    if propulsion_mass_kg is None:
+        total = (structure + payload_kg) / (1.0 - PROPULSION_FRACTION)
+        propulsion = PROPULSION_FRACTION * total
+    else:
+        propulsion = propulsion_mass_kg
+        total = structure + payload_kg + propulsion
 
     vcg_s = VCG_STRUCTURE_OVER_D * depth
     vcg_p = VCG_PAYLOAD_OVER_D * depth

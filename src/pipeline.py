@@ -35,8 +35,19 @@ from src.core.regime import (
 )
 from src.core.types import GoalSpec
 from src.physics.hydrostatics import RHO_SEAWATER, SinksError, evaluate
-from src.physics.propulsion import NoSuitableMotorError, select_motors
+from src.physics.propulsion import (
+    NoSuitableMotorError,
+    battery_mass,
+    select_motors,
+)
 from src.physics.resistance import total_resistance
+
+MAX_SPIRAL_ITER = 12   # 설계 나선 최대 반복
+SPIRAL_TOL = 1e-3      # 전체 중량 상대 변화 수렴 기준
+
+
+class SpiralNotConvergedError(RuntimeError):
+    """설계 나선이 수렴하지 않음 — 요구조건 조합이 발산."""
 from src.physics.weights import estimate_weights
 
 
@@ -63,14 +74,33 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         ) from e
 
     mesh = generate_hull_mesh(dims)
-    weights = estimate_weights(float(mesh.area), dims.depth, goal.payload_kg)
-    hydro = evaluate(mesh, weights.total_mass, weights.kg,
-                     beam=dims.beam, depth=dims.depth)
-
     n_exp, m_exp = solve_exponents(dims.cb)
-    resist = total_resistance(mesh, dims, n_exp, m_exp,
-                              draft=hydro.draft, speed=goal.target_speed_ms)
-    motors = select_motors(resist.total)
+
+    # 설계 나선 (design spiral): 중량 → 흘수 → 저항 → 모터·배터리 → 중량 …
+    # 추진계 중량을 고정비율 개략에서 시작해 실측(모터+배터리)으로 수렴시킨다.
+    propulsion_mass: float | None = None
+    prev_total: float | None = None
+    for iteration in range(1, MAX_SPIRAL_ITER + 1):
+        weights = estimate_weights(float(mesh.area), dims.depth,
+                                   goal.payload_kg, propulsion_mass)
+        hydro = evaluate(mesh, weights.total_mass, weights.kg,
+                         beam=dims.beam, depth=dims.depth)
+        resist = total_resistance(mesh, dims, n_exp, m_exp,
+                                  draft=hydro.draft,
+                                  speed=goal.target_speed_ms)
+        motors = select_motors(resist.total)
+        batt_kg = battery_mass(resist.effective_power, goal.endurance_h)
+        propulsion_mass = motors.total_weight_kg + batt_kg
+
+        if prev_total is not None and \
+                abs(weights.total_mass - prev_total) / prev_total < SPIRAL_TOL:
+            break
+        prev_total = weights.total_mass
+    else:
+        raise SpiralNotConvergedError(
+            f"{MAX_SPIRAL_ITER}회 반복에도 중량이 수렴하지 않음 — "
+            "요구조건(적재량·속도·항속시간) 조합을 조정해 주세요."
+        )
 
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
@@ -86,7 +116,12 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),
-        "propulsion": dataclasses.asdict(motors),
+        "propulsion": {
+            **dataclasses.asdict(motors),
+            "battery_mass_kg": batt_kg,
+            "endurance_h": goal.endurance_h,
+            "spiral_iterations": iteration,
+        },
         "passed": hydro.passed,
         "mesh_file": mesh_file,
     }
@@ -134,6 +169,8 @@ def _print_summary(report: dict) -> None:
           f"× {p['count']}발 — 장착 {p['total_thrust_n']:.0f} N, "
           f"사용률 {p['utilization'] * 100:.0f}%, "
           f"모터 중량 {p['total_weight_kg']:.1f} kg")
+    print(f"배터리          : {p['battery_mass_kg']:.1f} kg "
+          f"(항속 {p['endurance_h']}h 기준, 나선 {p['spiral_iterations']}회 수렴)")
     print(f"필터 판정       : {h['checks']} → "
           f"{'통과' if report['passed'] else '불합격'}")
     print("=" * 56)
@@ -157,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_pipeline(goal, args.out, loa=args.loa)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
-            SinksError, PayloadInfeasibleError, NoSuitableMotorError) as e:
+            SinksError, PayloadInfeasibleError, NoSuitableMotorError,
+            SpiralNotConvergedError) as e:
         print(f"[중단] {e}", file=sys.stderr)
         return 3
     _print_summary(report)

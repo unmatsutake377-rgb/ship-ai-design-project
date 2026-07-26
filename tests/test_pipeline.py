@@ -19,6 +19,23 @@ def test_run_pipeline_survey(tmp_path):
     assert report["resistance"]["total"] > 0
     assert report["propulsion"]["count"] == 2
     assert report["propulsion"]["total_thrust_n"] >= 2 * report["resistance"]["total"]
+
+
+def test_design_spiral_converges_and_realistic(tmp_path):
+    """나선 수렴 + 실측 추진계가 고정비율(15%) 개략보다 가벼워야 함."""
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
+    report = run_pipeline(goal, tmp_path)
+    p = report["propulsion"]
+    w = report["weights"]
+    assert 2 <= p["spiral_iterations"] <= 12
+    assert p["battery_mass_kg"] > 0
+    # 실측 추진계(모터+배터리) < 옛 고정비율 15%·전체
+    assert w["propulsion_mass"] < 0.15 * w["total_mass"]
+    # 중량 폐합: 전체 = 구조 + 적재 + 추진
+    assert w["total_mass"] == pytest.approx(
+        w["structure_mass"] + w["payload_mass"] + w["propulsion_mass"],
+        rel=1e-6,
+    )
     # 산출물 파일 존재
     assert (tmp_path / report["mesh_file"]).exists()
     assert (tmp_path / "report.json").exists()

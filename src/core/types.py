@@ -15,6 +15,7 @@ class GoalSpec:
     target_speed_ms: float  # 목표 순항 속도 [m/s]
     payload_kg: float       # 적재량 [kg]
     purpose: str            # "survey" | "patrol" | "workboat"
+    endurance_h: float = 4.0  # 항속시간 [h] — 배터리 크기 산정 근거
 
 
 @dataclass(frozen=True)
