@@ -27,7 +27,10 @@ from src.ai.hull_generator import generate_hull_mesh, solve_exponents
 from src.core.types import MainDimensions
 
 THRUSTER_SEP_OVER_B = 0.8   # 추력기 좌우 간격 / 폭
-ACCEPT_RADIUS_OVER_L = 2.0  # 웨이포인트 수용 반경 / 길이
+# 수용 반경: 이 거리 안에 들어오면 "도달" 판정. 2.0L로 뒀더니 20 m 코스에서
+# 4 m 밖을 지나가며 도달 처리됨 (오너 지적) — 1.0L로 조정.
+# 실험 (2026-07-26): 2.0L 121s/최악3.8m, 1.0L 140s/1.9m, 0.5L 148s/0.4m.
+ACCEPT_RADIUS_OVER_L = 1.0
 DT_DEFAULT = 0.05           # [s]
 
 # 선수각 제어 설계 — 추력 여력 기반 (임의 상수 금지):
