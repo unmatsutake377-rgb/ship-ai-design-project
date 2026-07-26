@@ -33,6 +33,26 @@ def test_pipeline_rejects_fast_speed(tmp_path):
         run_pipeline(goal, tmp_path)
 
 
+def test_report_contains_speed_limit(tmp_path):
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
+    report = run_pipeline(goal, tmp_path)
+    vmax = report["max_displacement_speed"]
+    assert vmax > report["goal"]["target_speed_ms"]  # 통과했으니 여유 있어야
+
+
+def test_rejection_message_has_alternatives(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "src.pipeline",
+         "--speed", "6.0", "--payload", "100", "--purpose", "survey",
+         "--out", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 3
+    err = result.stdout + result.stderr
+    assert "한계속도" in err   # 이 크기가 낼 수 있는 속도
+    assert "최소" in err       # 이 속도에 필요한 길이
+
+
 def test_cli_smoke(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "src.pipeline",

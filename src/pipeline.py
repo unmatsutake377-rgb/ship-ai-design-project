@@ -24,6 +24,8 @@ from src.core.regime import (
     classify,
     froude_length,
     froude_volumetric,
+    max_displacement_speed,
+    min_loa_for_speed,
     require_supported,
 )
 from src.core.types import GoalSpec
@@ -39,7 +41,19 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path) -> dict:
     dims = estimate_dimensions(goal)
     volume_est = dims.cb * dims.loa * dims.beam * dims.draft_design
     regime = classify(goal.target_speed_ms, dims.loa, volume_est)
-    require_supported(regime)
+    vmax = max_displacement_speed(dims.loa)
+    try:
+        require_supported(regime)
+    except UnsupportedRegimeError as e:
+        # 거절에도 대안 숫자를 준다 (오너 제안 Q2): 이 크기의 한계속도,
+        # 이 속도에 필요한 최소 길이
+        raise UnsupportedRegimeError(
+            e.regime,
+            f"{e} | 추정 선체 L={dims.loa:.2f} m의 배수량형 한계속도는 "
+            f"{vmax:.2f} m/s입니다. 목표 {goal.target_speed_ms} m/s를 내려면 "
+            f"최소 L={min_loa_for_speed(goal.target_speed_ms):.2f} m가 "
+            f"필요합니다."
+        ) from e
 
     mesh = generate_hull_mesh(dims)
     weights = estimate_weights(float(mesh.area), dims.depth, goal.payload_kg)
@@ -59,6 +73,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path) -> dict:
         "regime": regime.name,
         "froude_length": froude_length(goal.target_speed_ms, dims.loa),
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
+        "max_displacement_speed": vmax,
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),
@@ -95,6 +110,8 @@ def _print_summary(report: dict) -> None:
     print(f"저항 @목표속도  : 전체 {r['total']:.1f} N "
           f"(마찰 {r['rf']:.1f} + 조파 {r['rw']:.1f})")
     print(f"유효 파워       : {r['effective_power']:.1f} W")
+    print(f"한계속도(참고)  : {report['max_displacement_speed']:.2f} m/s "
+          f"(이 선체 길이의 배수량형 상한)")
     print(f"필터 판정       : {h['checks']} → "
           f"{'통과' if report['passed'] else '불합격'}")
     print("=" * 56)
