@@ -13,8 +13,12 @@ def test_run_pipeline_survey(tmp_path):
     report = run_pipeline(goal, tmp_path)
     # 리포트 필수 필드
     for key in ("goal", "dimensions", "regime", "weights", "hydrostatics",
-                "resistance", "propulsion", "passed", "mesh_file"):
+                "resistance", "propulsion", "coefficients", "passed",
+                "mesh_file"):
         assert key in report, key
+    assert isinstance(report["coefficients"]["straight_line_stable"], bool)
+    assert report["coefficients"]["extrapolation_warning"] is True
+    assert report["weights"]["izz"] > 0
     assert report["regime"] == "DISPLACEMENT"
     assert report["resistance"]["total"] > 0
     assert report["propulsion"]["count"] == 2

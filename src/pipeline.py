@@ -34,6 +34,7 @@ from src.core.regime import (
     require_supported,
 )
 from src.core.types import GoalSpec
+from src.physics.coefficients import estimate_coefficients
 from src.physics.hydrostatics import RHO_SEAWATER, SinksError, evaluate
 from src.physics.propulsion import (
     NoSuitableMotorError,
@@ -82,7 +83,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     prev_total: float | None = None
     for iteration in range(1, MAX_SPIRAL_ITER + 1):
         weights = estimate_weights(float(mesh.area), dims.depth,
-                                   goal.payload_kg, propulsion_mass)
+                                   goal.payload_kg, propulsion_mass,
+                                   loa=dims.loa)
         hydro = evaluate(mesh, weights.total_mass, weights.kg,
                          beam=dims.beam, depth=dims.depth)
         resist = total_resistance(mesh, dims, n_exp, m_exp,
@@ -101,6 +103,12 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
             f"{MAX_SPIRAL_ITER}회 반복에도 중량이 수렴하지 않음 — "
             "요구조건(적재량·속도·항속시간) 조합을 조정해 주세요."
         )
+
+    coeffs = estimate_coefficients(
+        dims=dims, draft=hydro.draft, mass=weights.total_mass,
+        lcg=weights.lcg, speed=goal.target_speed_ms,
+        mesh=mesh, n_exp=n_exp, m_exp=m_exp,
+    )
 
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
@@ -122,6 +130,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
             "endurance_h": goal.endurance_h,
             "spiral_iterations": iteration,
         },
+        "coefficients": dataclasses.asdict(coeffs),
         "passed": hydro.passed,
         "mesh_file": mesh_file,
     }
@@ -171,6 +180,10 @@ def _print_summary(report: dict) -> None:
           f"모터 중량 {p['total_weight_kg']:.1f} kg")
     print(f"배터리          : {p['battery_mass_kg']:.1f} kg "
           f"(항속 {p['endurance_h']}h 기준, 나선 {p['spiral_iterations']}회 수렴)")
+    c = report["coefficients"]
+    stable = "안정" if c["straight_line_stable"] else "불안정"
+    print(f"동역학 계수     : 횡 부가질량 {c['yv_dot']:.0f} kg · "
+          f"직진 {stable} · ⚠ 대형선 회귀 외삽")
     print(f"필터 판정       : {h['checks']} → "
           f"{'통과' if report['passed'] else '불합격'}")
     print("=" * 56)
