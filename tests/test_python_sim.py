@@ -80,3 +80,20 @@ def test_result_arrays_consistent(vessel, report):
     n = len(result.time)
     assert n == len(result.x) == len(result.y) == len(result.u)
     assert isinstance(result, SimResult)
+
+
+def test_path_quality_no_weaving(vessel, report):
+    """경로 품질: 실제 경로 길이 / 이상 경로(둘레) < 1.35.
+
+    회귀 방지: 초기 게인(임의 상수)에서 S자 요동으로 비율 ~2가 나왔음 —
+    '도달'만 검사하면 뱀 궤적도 통과한다. 극배치 게인 도입 근거.
+    """
+    waypoints = default_square_course(vessel.loa)
+    result = simulate_waypoints(
+        vessel, waypoints, u_desired=report["goal"]["target_speed_ms"]
+    )
+    assert result.success
+    xs, ys = np.array(result.x), np.array(result.y)
+    path_length = float(np.sum(np.hypot(np.diff(xs), np.diff(ys))))
+    ideal = 4 * 10.0 * vessel.loa  # 사각 둘레
+    assert path_length / ideal < 1.35, f"ratio={path_length / ideal:.2f}"

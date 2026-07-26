@@ -30,10 +30,16 @@ THRUSTER_SEP_OVER_B = 0.8   # 추력기 좌우 간격 / 폭
 ACCEPT_RADIUS_OVER_L = 2.0  # 웨이포인트 수용 반경 / 길이
 DT_DEFAULT = 0.05           # [s]
 
-# 제어 게인 (무차원 튜닝 상수 — 테스트는 게인이 아니라 거동을 검증)
-KP_HEADING = 4.0   # 선수각 오차 → 차동 추력 (I_z/s² 스케일 곱)
-KD_HEADING = 3.0
-KP_SPEED = 8.0     # 속도 오차 → 공통 추력 (m_x/s 스케일 곱)
+# 선수각 제어 설계 — 추력 여력 기반 (임의 상수 금지):
+#   Kp: 오차 90°에서 최대 가용 모멘트의 이 비율을 명령하도록 산정
+#       Kp = FRACTION·M_max/(π/2),  M_max = T_max·간격
+#   Kd: 목표 감쇠비 ζ 기준 총감쇠에서 배 자체 감쇠 Nr 공제 (하한 0)
+#       — Nr가 이미 충분히 크면 Kd=0 (과감쇠 허용: 오버슈트 없음이 우선)
+# 이력: ① 임의 상수 게인 → 포화 한계 사이클로 S자 요동 (경로비 ~2)
+#       ② 대역폭 기준 → 가용 모멘트 6%만 사용, 과감쇠 거북이 (600s 미완)
+KP_MOMENT_FRACTION = 0.7
+YAW_DAMPING_RATIO = 1.0
+KP_SPEED = 8.0              # 속도 오차 → 공통 추력 (m_x/10 스케일 곱)
 
 RESISTANCE_SAMPLES = 8      # 저항곡선 사전 샘플 수
 RESISTANCE_SPEED_FACTOR = 1.6  # 샘플 상한 / 목표 속도
@@ -140,8 +146,11 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
                        t_max: float = 600.0) -> SimResult:
     """LOS 유도 + PD 선수각 + P 속도 제어로 웨이포인트 순회."""
     accept = ACCEPT_RADIUS_OVER_L * vessel.loa
-    kp_psi = KP_HEADING * vessel.i_z          # [N·m/rad] 스케일
-    kd_psi = KD_HEADING * vessel.i_z          # [N·m/(rad/s)]
+    # 추력 여력 기반 게인 (모듈 상단 설계식·이력 참조)
+    moment_max = vessel.thrust_max * vessel.thruster_sep
+    kp_psi = KP_MOMENT_FRACTION * moment_max / (math.pi / 2.0)
+    kd_psi = max(0.0, 2.0 * YAW_DAMPING_RATIO
+                 * math.sqrt(kp_psi * vessel.i_z) - vessel.nr)
     kp_u = KP_SPEED * vessel.m_x / 10.0       # [N/(m/s)]
 
     state = np.zeros(6)
@@ -163,15 +172,15 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
                 break
             wx, wy = waypoints[wp_index]
 
-        # LOS + PD + P
+        # LOS + PD + P — 배분은 선회 우선: 포화 시에도 명령 모멘트 보존
         psi_d = math.atan2(wy - y, wx - x)
         moment_cmd = kp_psi * ssa(psi_d - psi) - kd_psi * r
         diff = moment_cmd / vessel.thruster_sep  # (T_R − T_L)/2
-        common = kp_u * (u_desired - u)
-        t_l = float(np.clip(common - diff, -vessel.thrust_max,
-                            vessel.thrust_max))
-        t_r = float(np.clip(common + diff, -vessel.thrust_max,
-                            vessel.thrust_max))
+        diff = float(np.clip(diff, -vessel.thrust_max, vessel.thrust_max))
+        headroom = vessel.thrust_max - abs(diff)
+        common = float(np.clip(kp_u * (u_desired - u), -headroom, headroom))
+        t_l = common - diff
+        t_r = common + diff
 
         state = step(vessel, state, t_l, t_r, dt)
         result.time.append(t)
