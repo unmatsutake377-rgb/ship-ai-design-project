@@ -2,8 +2,11 @@ import pytest
 
 from src.ai.dimension_estimator import (
     PURPOSE_BANDS,
+    PayloadInfeasibleError,
     UnknownPurposeError,
+    band_report,
     estimate_dimensions,
+    payload_capacity,
 )
 from src.ai.hull_generator import CB_ENVELOPE
 from src.core.types import GoalSpec
@@ -14,7 +17,7 @@ RHO = 1025.0
 def test_survey_dimensions_sane():
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
     dims = estimate_dimensions(goal)
-    assert 2.0 < dims.loa < 6.0          # 소형 USV 범위
+    assert 1.5 < dims.loa < 6.0          # 소형 USV 범위
     assert dims.beam < dims.loa
     assert dims.draft_design < dims.beam
     assert dims.depth > dims.draft_design
@@ -47,3 +50,51 @@ def test_all_band_cbs_within_generator_envelope():
 def test_unknown_purpose_raises():
     with pytest.raises(UnknownPurposeError, match="지원 용도"):
         estimate_dimensions(GoalSpec(1.5, 100.0, "racing"))
+
+
+# ---------- 데이터 기반 개편 (2026-07-26) ----------
+
+def test_survey_band_is_data_driven():
+    """survey는 실선 단동 3척 이상 근거 — 개략값이 아니어야 함."""
+    band = PURPOSE_BANDS["survey"]
+    assert band.source == "data"
+    assert band.n_samples >= 3
+    # 실선 통계: 단동 조사용 USV L/B는 2 근방 (개략값 3.0과 뚜렷이 다름)
+    assert 1.7 < band.lb < 2.5
+
+
+def test_patrol_band_falls_back_with_label():
+    """데이터 부족 카테고리는 fallback — 반드시 표시가 남아야 함."""
+    band = PURPOSE_BANDS["patrol"]
+    assert band.source == "fallback"
+    assert band.n_samples == 0
+
+
+def test_user_loa_override():
+    goal = GoalSpec(1.5, 10.0, "survey")
+    dims = estimate_dimensions(goal, loa=1.6)
+    assert dims.loa == 1.6
+    band = PURPOSE_BANDS["survey"]
+    assert dims.beam == pytest.approx(1.6 / band.lb, rel=1e-9)
+
+
+def test_payload_infeasible_raises_with_min_length():
+    """작은 배에 큰 짐 → 명시적 거절 + 필요한 최소 길이 제시."""
+    goal = GoalSpec(1.5, 500.0, "survey")
+    with pytest.raises(PayloadInfeasibleError, match="최소 L="):
+        estimate_dimensions(goal, loa=1.2)
+
+
+def test_payload_capacity_consistent_with_estimator():
+    """역산 폐합: 자동 산정된 loa의 적재 한계 = 요청 적재량."""
+    goal = GoalSpec(1.5, 100.0, "survey")
+    dims = estimate_dimensions(goal)
+    band = PURPOSE_BANDS["survey"]
+    assert payload_capacity(dims.loa, band) == pytest.approx(100.0, rel=1e-6)
+
+
+def test_band_report_fields():
+    rep = band_report("survey")
+    for key in ("source", "n_samples", "loa_range", "lb", "bt",
+                "cb_assumed", "payload_fraction"):
+        assert key in rep

@@ -13,7 +13,12 @@ import json
 import sys
 from pathlib import Path
 
-from src.ai.dimension_estimator import UnknownPurposeError, estimate_dimensions
+from src.ai.dimension_estimator import (
+    PayloadInfeasibleError,
+    UnknownPurposeError,
+    band_report,
+    estimate_dimensions,
+)
 from src.ai.hull_generator import (
     CbOutOfRangeError,
     generate_hull_mesh,
@@ -34,11 +39,12 @@ from src.physics.resistance import total_resistance
 from src.physics.weights import estimate_weights
 
 
-def run_pipeline(goal: GoalSpec, out_dir: str | Path) -> dict:
+def run_pipeline(goal: GoalSpec, out_dir: str | Path,
+                 loa: float | None = None) -> dict:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    dims = estimate_dimensions(goal)
+    dims = estimate_dimensions(goal, loa=loa)
     volume_est = dims.cb * dims.loa * dims.beam * dims.draft_design
     regime = classify(goal.target_speed_ms, dims.loa, volume_est)
     vmax = max_displacement_speed(dims.loa)
@@ -70,6 +76,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path) -> dict:
     report = {
         "goal": dataclasses.asdict(goal),
         "dimensions": dataclasses.asdict(dims),
+        "dimension_basis": band_report(goal.purpose),
         "regime": regime.name,
         "froude_length": froude_length(goal.target_speed_ms, dims.loa),
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
@@ -99,6 +106,13 @@ def _print_summary(report: dict) -> None:
           f"(Fn={report['froude_length']:.3f})")
     print(f"치수 L×B×D (T)  : {d['loa']:.2f} × {d['beam']:.2f} × "
           f"{d['depth']:.2f} ({d['draft_design']:.2f}) m, Cb={d['cb']:.2f}")
+    basis = report["dimension_basis"]
+    if basis["source"] == "data":
+        print(f"치수 근거       : 실선 단동 {basis['n_samples']}척 통계 "
+              f"(길이 범위 {basis['loa_range'][0]:.1f}~"
+              f"{basis['loa_range'][1]:.1f} m)")
+    else:
+        print("치수 근거       : ⚠ 개략값 (이 용도는 실선 데이터 미확보)")
     print(f"전체 중량       : {w['total_mass']:.1f} kg "
           f"(구조 {w['structure_mass']:.1f} / 추진 {w['propulsion_mass']:.1f} "
           f"/ 적재 {w['payload_mass']:.1f})")
@@ -126,14 +140,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--purpose", required=True,
                         help="용도: survey | patrol | workboat")
     parser.add_argument("--out", default="outputs", help="출력 디렉토리")
+    parser.add_argument("--loa", type=float, default=None,
+                        help="선체 길이 직접 지정 [m] (생략 시 적재량에서 역산)")
     args = parser.parse_args(argv)
 
     goal = GoalSpec(target_speed_ms=args.speed, payload_kg=args.payload,
                     purpose=args.purpose)
     try:
-        report = run_pipeline(goal, args.out)
+        report = run_pipeline(goal, args.out, loa=args.loa)
     except (UnsupportedRegimeError, UnknownPurposeError,
-            CbOutOfRangeError, SinksError) as e:
+            CbOutOfRangeError, SinksError, PayloadInfeasibleError) as e:
         print(f"[중단] {e}", file=sys.stderr)
         return 3
     _print_summary(report)
