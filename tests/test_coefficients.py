@@ -17,22 +17,32 @@ def test_clarke_pinned_value():
     """수계산 고정: L=4, B=1, T=0.25 → (T/L)²=0.00390625.
     Yv' = π·(T/L)²·[1 + 0.40·Cb·(B/T)] = π·0.00390625·[1+0.40·0.5·4] = 0.031906...
     """
-    nd = clarke_nondim(loa=4.0, beam=1.0, draft=0.25, cb=0.50)
+    nd, clamped = clarke_nondim(loa=4.0, beam=1.0, draft=0.25, cb=0.50)
     expected = math.pi * 0.00390625 * (1 + 0.40 * 0.50 * 4.0)
     assert nd["Yv_p"] == pytest.approx(expected, rel=1e-9)
+    assert clamped == []  # 날씬한 선형은 회귀 범위 안
 
 
 def test_clarke_all_positive_magnitudes():
     """모든 계수를 크기(양수)로 저장하는 규약 확인."""
-    nd = clarke_nondim(loa=4.0, beam=1.0, draft=0.25, cb=0.50)
+    nd, _ = clarke_nondim(loa=4.0, beam=1.0, draft=0.25, cb=0.50)
     for key, value in nd.items():
         assert value > 0, key
 
 
 def test_sway_added_mass_dominates_cross_terms():
     """세장체 물리: 횡 부가질량(Yv̇)이 교차항(Nv̇)보다 커야 함."""
-    nd = clarke_nondim(loa=4.0, beam=1.0, draft=0.25, cb=0.50)
+    nd, _ = clarke_nondim(loa=4.0, beam=1.0, draft=0.25, cb=0.50)
     assert nd["Yv_dot_p"] > nd["Nv_dot_p"]
+
+
+def test_stubby_hull_clamped_but_physical():
+    """B/L=0.5 (실선 USV 비율): Clarke 범위 밖 → 클램프 발동하되
+    모든 계수는 양수 유지 (음의 관성 금지 — M4b 발산 회귀 방지)."""
+    nd, clamped = clarke_nondim(loa=1.97, beam=0.985, draft=0.175, cb=0.50)
+    assert "Nr_dot_p" in clamped
+    for key, value in nd.items():
+        assert value > 0, key
 
 
 def _full_set(speed=1.2):

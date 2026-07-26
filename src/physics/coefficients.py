@@ -27,23 +27,52 @@ XU_DOT_MASS_FRACTION = 0.05  # 전진 부가질량/질량 (세장체 개략)
 SURGE_FD_STEP = 0.05         # 저항 미분 중앙차분 스텝 (±5% U)
 
 
+# 회귀 괄호항이 음수로 떨어지면 물리 위반(음의 관성·감쇠) — 선두항의
+# 이 비율을 하한으로 클램프하고 out-of-range를 표시한다.
+# 배경: Clarke는 B/L 0.1~0.2 상선 통계. 실선 USV(B/L ~0.5)는 범위 밖 —
+# 실제로 B/L=0.5에서 Nṙ 괄호항이 음수가 되어 시뮬레이션이 발산했음 (M4b).
+BRACKET_FLOOR_FRACTION = 0.10
+
+# 각 계수의 (괄호항 계산식, 선두항) — 선두항×비율이 하한
+_LEADING_TERMS = {
+    "Yv_dot_p": 1.0,
+    "Nr_dot_p": 1.0 / 12.0,
+    "Yv_p": 1.0,
+    "Nv_p": 0.5,
+    "Nr_p": 0.25,
+}
+
+
 def clarke_nondim(loa: float, beam: float, draft: float,
-                  cb: float) -> dict[str, float]:
-    """Clarke(1983) 회귀 — 무차원 계수 크기. T는 실제(평형) 흘수."""
+                  cb: float) -> tuple[dict[str, float], list[str]]:
+    """Clarke(1983) 회귀 — 무차원 계수 크기 + 클램프된 항 목록.
+
+    T는 실제(평형) 흘수. 반환: (계수 dict, 하한 클램프가 발동한 키 목록).
+    클램프 발동 = 이 선형이 회귀 유효범위 밖이라는 신호.
+    """
     t_l = draft / loa
     b_l = beam / loa
     b_t = beam / draft
     k = math.pi * t_l ** 2
-    return {
-        "Yv_dot_p": k * (1.0 + 0.16 * cb * b_t - 5.1 * b_l ** 2),
-        "Yr_dot_p": k * abs(0.67 * b_l - 0.0033 * b_t ** 2),
-        "Nv_dot_p": k * abs(1.1 * b_l - 0.041 * b_t),
-        "Nr_dot_p": k * (1.0 / 12.0 + 0.017 * cb * b_t - 0.33 * b_l),
-        "Yv_p": k * (1.0 + 0.40 * cb * b_t),
-        "Yr_p": k * abs(-0.5 + 2.2 * b_l - 0.080 * b_t),
-        "Nv_p": k * (0.5 + 2.4 * t_l),
-        "Nr_p": k * (0.25 + 0.039 * b_t - 0.56 * b_l),
+    brackets = {
+        "Yv_dot_p": 1.0 + 0.16 * cb * b_t - 5.1 * b_l ** 2,
+        "Yr_dot_p": abs(0.67 * b_l - 0.0033 * b_t ** 2),
+        "Nv_dot_p": abs(1.1 * b_l - 0.041 * b_t),
+        "Nr_dot_p": 1.0 / 12.0 + 0.017 * cb * b_t - 0.33 * b_l,
+        "Yv_p": 1.0 + 0.40 * cb * b_t,
+        "Yr_p": abs(-0.5 + 2.2 * b_l - 0.080 * b_t),
+        "Nv_p": 0.5 + 2.4 * t_l,
+        "Nr_p": 0.25 + 0.039 * b_t - 0.56 * b_l,
     }
+    clamped: list[str] = []
+    result: dict[str, float] = {}
+    for key, bracket in brackets.items():
+        floor = BRACKET_FLOOR_FRACTION * _LEADING_TERMS.get(key, 0.0)
+        if bracket < floor:
+            clamped.append(key)
+            bracket = floor if floor > 0 else abs(bracket)
+        result[key] = k * bracket
+    return result, clamped
 
 
 @dataclass(frozen=True)
@@ -62,6 +91,7 @@ class CoefficientSet:
     xu: float       # 전진 감쇠 = dR/du @ U [N/(m/s)]
     straight_line_stable: bool
     extrapolation_warning: bool
+    clamped_terms: tuple = ()  # 하한 클램프 발동 항 — 회귀 범위 밖 신호
 
 
 def estimate_coefficients(dims: MainDimensions, draft: float, mass: float,
@@ -69,7 +99,7 @@ def estimate_coefficients(dims: MainDimensions, draft: float, mass: float,
                           n_exp: float, m_exp: float,
                           rho: float = RHO_SEAWATER) -> CoefficientSet:
     """Fossen 3자유도 계수 세트 (M4b 시뮬레이션·Phase B 내보내기 입력)."""
-    nd = clarke_nondim(dims.loa, dims.beam, draft, dims.cb)
+    nd, clamped = clarke_nondim(dims.loa, dims.beam, draft, dims.cb)
     L, U = dims.loa, speed
     half_rho = 0.5 * rho
 
@@ -99,4 +129,5 @@ def estimate_coefficients(dims: MainDimensions, draft: float, mass: float,
         xu=xu,
         straight_line_stable=bool(stability_index > 0),
         extrapolation_warning=True,
+        clamped_terms=tuple(clamped),
     )
