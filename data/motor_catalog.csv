@@ -1,0 +1,4 @@
+name,maker,thrust_max_n,weight_kg,power_max_w,voltage_v,battery_wh,price_usd,source_url,source_grade,cross_verified,collected_date,notes
+T200,Blue Robotics,51.5,0.427,645,16,,230,https://bluerobotics.com/store/thrusters/t100-t200-thrusters/t200-thruster-r2-rp/,A,True,2026-07-26,정격 16V 전진 추력 5.25kgf 기준(보수적) · 20V 최대 6.7kgf. 중량은 1m 케이블 포함. 배터리 별도
+Ultralight 403,Torqeedo,146.8,4.54,400,29.6,320,,https://defender.com/assets/pdf/torqeedo/torqeedo-ultralight-403-product-info.pdf,A,True,2026-07-26,정적 추력 33lbs(ISO 기준). 중량은 배터리 제외(포함 시 8.6kg). 320Wh 배터리 포함 제품. Otter USV 실사용 모터
+T500,Blue Robotics,157.9,1.157,1044,24,,790,https://bluerobotics.com/store/thrusters/t100-t200-thrusters/t500-thruster/,A,True,2026-07-26,24V 전진 추력 16.1kgf. 중량은 1.5m 케이블 포함. 배터리 별도

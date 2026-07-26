@@ -35,6 +35,7 @@ from src.core.regime import (
 )
 from src.core.types import GoalSpec
 from src.physics.hydrostatics import RHO_SEAWATER, SinksError, evaluate
+from src.physics.propulsion import NoSuitableMotorError, select_motors
 from src.physics.resistance import total_resistance
 from src.physics.weights import estimate_weights
 
@@ -69,6 +70,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     n_exp, m_exp = solve_exponents(dims.cb)
     resist = total_resistance(mesh, dims, n_exp, m_exp,
                               draft=hydro.draft, speed=goal.target_speed_ms)
+    motors = select_motors(resist.total)
 
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
@@ -84,6 +86,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),
+        "propulsion": dataclasses.asdict(motors),
         "passed": hydro.passed,
         "mesh_file": mesh_file,
     }
@@ -126,6 +129,11 @@ def _print_summary(report: dict) -> None:
     print(f"유효 파워       : {r['effective_power']:.1f} W")
     print(f"한계속도(참고)  : {report['max_displacement_speed']:.2f} m/s "
           f"(이 선체 길이의 배수량형 상한)")
+    p = report["propulsion"]
+    print(f"권장 모터       : {p['motor']['name']} ({p['motor']['maker']}) "
+          f"× {p['count']}발 — 장착 {p['total_thrust_n']:.0f} N, "
+          f"사용률 {p['utilization'] * 100:.0f}%, "
+          f"모터 중량 {p['total_weight_kg']:.1f} kg")
     print(f"필터 판정       : {h['checks']} → "
           f"{'통과' if report['passed'] else '불합격'}")
     print("=" * 56)
@@ -148,8 +156,8 @@ def main(argv: list[str] | None = None) -> int:
                     purpose=args.purpose)
     try:
         report = run_pipeline(goal, args.out, loa=args.loa)
-    except (UnsupportedRegimeError, UnknownPurposeError,
-            CbOutOfRangeError, SinksError, PayloadInfeasibleError) as e:
+    except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
+            SinksError, PayloadInfeasibleError, NoSuitableMotorError) as e:
         print(f"[중단] {e}", file=sys.stderr)
         return 3
     _print_summary(report)
