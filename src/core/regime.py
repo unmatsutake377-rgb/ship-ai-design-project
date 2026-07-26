@@ -52,6 +52,20 @@ def classify(speed_ms: float, loa: float, volume_m3: float) -> Regime:
     return Regime.SEMI_DISPLACEMENT
 
 
+def max_displacement_speed(loa: float) -> float:
+    """이 길이의 선체가 배수량형으로 낼 수 있는 속도 상한 [m/s].
+
+    hull speed: 자기가 만든 파도의 길이가 배 길이와 같아지는 속도(Fn≈0.4)
+    부터 저항이 급증 — 긴 배일수록 빠를 수 있다.
+    """
+    return FN_DISPLACEMENT_MAX * math.sqrt(G * loa)
+
+
+def min_loa_for_speed(speed_ms: float) -> float:
+    """이 속도를 배수량형으로 내려면 필요한 최소 선체 길이 [m] (역함수)."""
+    return (speed_ms / FN_DISPLACEMENT_MAX) ** 2 / G
+
+
 def require_supported(regime: Regime) -> None:
     """Phase A 미구현 체계면 명시적으로 중단한다."""
     if regime is not Regime.DISPLACEMENT:
