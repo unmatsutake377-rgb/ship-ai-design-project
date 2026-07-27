@@ -52,6 +52,39 @@ class SpiralNotConvergedError(RuntimeError):
 from src.physics.weights import estimate_weights
 
 
+def design_spiral(mesh, dims, goal: GoalSpec):
+    """설계 나선: 중량 → 흘수 → 저항 → 모터·배터리 → 중량 … 수렴까지.
+
+    추진계 중량을 고정비율 개략에서 시작해 실측(모터+배터리)으로 수렴.
+    반환: (weights, hydro, resist, motors, batt_kg, iteration).
+    run_pipeline과 최적화기(src/optimize.py)가 공유하는 평가 코어.
+    """
+    n_exp, m_exp = solve_exponents(dims.cb)
+    propulsion_mass: float | None = None
+    prev_total: float | None = None
+    for iteration in range(1, MAX_SPIRAL_ITER + 1):
+        weights = estimate_weights(float(mesh.area), dims.depth,
+                                   goal.payload_kg, propulsion_mass,
+                                   loa=dims.loa)
+        hydro = evaluate(mesh, weights.total_mass, weights.kg,
+                         beam=dims.beam, depth=dims.depth)
+        resist = total_resistance(mesh, dims, n_exp, m_exp,
+                                  draft=hydro.draft,
+                                  speed=goal.target_speed_ms)
+        motors = select_motors(resist.total)
+        batt_kg = battery_mass(resist.effective_power, goal.endurance_h)
+        propulsion_mass = motors.total_weight_kg + batt_kg
+
+        if prev_total is not None and \
+                abs(weights.total_mass - prev_total) / prev_total < SPIRAL_TOL:
+            return weights, hydro, resist, motors, batt_kg, iteration
+        prev_total = weights.total_mass
+    raise SpiralNotConvergedError(
+        f"{MAX_SPIRAL_ITER}회 반복에도 중량이 수렴하지 않음 — "
+        "요구조건(적재량·속도·항속시간) 조합을 조정해 주세요."
+    )
+
+
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  loa: float | None = None) -> dict:
     out = Path(out_dir)
@@ -77,32 +110,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     mesh = generate_hull_mesh(dims)
     n_exp, m_exp = solve_exponents(dims.cb)
 
-    # 설계 나선 (design spiral): 중량 → 흘수 → 저항 → 모터·배터리 → 중량 …
-    # 추진계 중량을 고정비율 개략에서 시작해 실측(모터+배터리)으로 수렴시킨다.
-    propulsion_mass: float | None = None
-    prev_total: float | None = None
-    for iteration in range(1, MAX_SPIRAL_ITER + 1):
-        weights = estimate_weights(float(mesh.area), dims.depth,
-                                   goal.payload_kg, propulsion_mass,
-                                   loa=dims.loa)
-        hydro = evaluate(mesh, weights.total_mass, weights.kg,
-                         beam=dims.beam, depth=dims.depth)
-        resist = total_resistance(mesh, dims, n_exp, m_exp,
-                                  draft=hydro.draft,
-                                  speed=goal.target_speed_ms)
-        motors = select_motors(resist.total)
-        batt_kg = battery_mass(resist.effective_power, goal.endurance_h)
-        propulsion_mass = motors.total_weight_kg + batt_kg
-
-        if prev_total is not None and \
-                abs(weights.total_mass - prev_total) / prev_total < SPIRAL_TOL:
-            break
-        prev_total = weights.total_mass
-    else:
-        raise SpiralNotConvergedError(
-            f"{MAX_SPIRAL_ITER}회 반복에도 중량이 수렴하지 않음 — "
-            "요구조건(적재량·속도·항속시간) 조합을 조정해 주세요."
-        )
+    weights, hydro, resist, motors, batt_kg, iteration = \
+        design_spiral(mesh, dims, goal)
 
     coeffs = estimate_coefficients(
         dims=dims, draft=hydro.draft, mass=weights.total_mass,
