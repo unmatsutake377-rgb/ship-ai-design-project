@@ -33,6 +33,32 @@ def test_all_hulls_normalized_loa10():
     assert np.allclose(vectors[:, 0], 10.0)
 
 
+def test_mesh_michell_matches_shipd_authors():
+    """이중 검증 ②: 우리 메쉬판 Michell vs Ship-D 원저자 독립 구현.
+
+    같은 선체·흘수·속도에서 10% 내 일치 (실측 2026-07-27: 비 0.93~1.00).
+    ①은 Wigley 해석판 대조 (test_resistance) — 두 검증 합쳐 임의 형상
+    조파저항의 신뢰 근거."""
+    import sys
+
+    sys.path.insert(0, str(shipd_loader.SHIPD_DIR))
+    from HullParameterization import Hull_Parameterization as HP
+    from ModifiedMichellCw import ModMichell
+
+    from src.physics.resistance import michell_wave_resistance_mesh
+
+    vectors, _ = shipd_loader.load_vectors()
+    x = vectors[2705]
+    hull = HP(x)
+    draft = float(hull.Dd) * 0.5
+    X, Z, Y, WL = hull.gen_PC_for_Cw(draft, NUM_WL=51, PointsPerWL=301)
+    mesh = shipd_loader.reconstruct_mesh(x, num_wl=80, points_per_wl=300)
+    u = 0.2 * np.sqrt(9.81 * WL)
+    theirs = ModMichell(Y, u, X, Z, 1025.0, 21)
+    ours = michell_wave_resistance_mesh(mesh, draft, u)
+    assert ours == pytest.approx(theirs, rel=0.10)
+
+
 def test_scaled_hull_passes_our_hydrostatics():
     """호환 실증: Ship-D 형상 × 우리 정역학 — 갑판 열린 메쉬여도
     수선하 절단 기반 계산이 정상 동작 (2026-07-27 파일럿 20척 검증됨)."""
