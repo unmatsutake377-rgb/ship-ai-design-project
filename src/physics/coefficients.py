@@ -110,10 +110,13 @@ def estimate_coefficients(dims: MainDimensions, draft: float, mass: float,
                             (1.0 - SURGE_FD_STEP) * U, rho).total
     xu = (r_hi - r_lo) / (2.0 * SURGE_FD_STEP * U)
 
-    # 직진 안정 판별 (Clarke): C = Nr'·Yv' − Nv'·(Yr' − m') > 0
+    # 직진 안정 판별 — 부호 포함 정식 (2026-07-27 정정: 크기값 계산은 오류).
+    # SNAME 부호(감쇠 음수)로 C = Y'v·N'r − N'v·(Y'r − m') 전개하면
+    # 크기 기준: C = Yv_p·Nr_p − Nv_p·(Yr_p + m').
+    # 통통한 맨몸 선체는 대개 C<0 (방향 불안정) — 실선이 스케그를 다는 이유.
     m_prime = mass / (half_rho * L ** 3)
-    stability_index = (nd["Nr_p"] * nd["Yv_p"]
-                       - nd["Nv_p"] * (nd["Yr_p"] - m_prime))
+    stability_index = (nd["Yv_p"] * nd["Nr_p"]
+                       - nd["Nv_p"] * (nd["Yr_p"] + m_prime))
 
     return CoefficientSet(
         nondim=nd,

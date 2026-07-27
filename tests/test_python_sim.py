@@ -96,4 +96,39 @@ def test_path_quality_no_weaving(vessel, report):
     xs, ys = np.array(result.x), np.array(result.y)
     path_length = float(np.sum(np.hypot(np.diff(xs), np.diff(ys))))
     ideal = 4 * 10.0 * vessel.loa  # 사각 둘레
-    assert path_length / ideal < 1.35, f"ratio={path_length / ideal:.2f}"
+    # 고유값 설계 게인(#21) 후 실측 0.96 (코너 안쪽 절단로 1.0 미만 가능).
+    # 1.10 = 실측 + 여유. 이력: 임의 게인 ~2 → 1.35 → 1.20 → 1.10.
+    assert path_length / ideal < 1.10, f"ratio={path_length / ideal:.2f}"
+    # 폐루프 선형 안정 확인 (한계 사이클 회귀 방지)
+    assert result.control_design["stable"] is True
+
+
+def test_straight_line_weave_killed(vessel):
+    """직선 추종 잔물결 회귀 방지: 2 m 이탈에서 시작해도 말단에서 침묵.
+
+    이력 (07-27): 헤딩 P만으로는 불안정 선체가 1.29 m 한계 사이클에
+    고착했음 (dt 무관 — 실제 동역학). 고유값 설계 게인이 해법.
+    """
+    from src.sim_adapters.python_sim import design_gains, ssa
+    import math
+
+    kp, kd, lookahead, info = design_gains(vessel, 1.5)
+    assert info["stable"]
+    state = np.array([0.0, 2.0, 0.0, 1.2, 0.0, 0.0])
+    kp_u = 8.0 * vessel.m_x / 10.0
+    tail_e = []
+    for _ in range(8000):
+        x, y, psi, u, v_, r = state
+        if x > 95:
+            break
+        psi_d = math.atan2(-y, lookahead)
+        m = kp * ssa(psi_d - psi) - kd * r
+        d = float(np.clip(m / vessel.thruster_sep,
+                          -vessel.thrust_max, vessel.thrust_max))
+        head = vessel.thrust_max - abs(d)
+        c = float(np.clip(kp_u * (1.5 - u), -head, head))
+        from src.sim_adapters.python_sim import step
+        state = step(vessel, state, c - d, c + d, 0.05)
+        if state[0] > 70:
+            tail_e.append(abs(state[1]))
+    assert max(tail_e) < 0.3, f"말단 잔물결 {max(tail_e):.2f} m"

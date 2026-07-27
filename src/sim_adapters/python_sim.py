@@ -31,18 +31,66 @@ THRUSTER_SEP_OVER_B = 0.8   # 추력기 좌우 간격 / 폭
 # 4 m 밖을 지나가며 도달 처리됨 (오너 지적) — 1.0L로 조정.
 # 실험 (2026-07-26): 2.0L 121s/최악3.8m, 1.0L 140s/1.9m, 0.5L 148s/0.4m.
 ACCEPT_RADIUS_OVER_L = 1.0
+
+# LOS lookahead (#21): 웨이포인트 조준(순수추적)이 아니라 "경로선에서
+# 벗어난 거리(cross-track)를 lookahead 거리 앞에서 되찾는 방향"을 조준.
+# lookahead 거리는 design_gains가 게인과 함께 고유값 판별로 선정.
+
+# 코너 감속: 웨이포인트 이 거리 안에서 목표 속도를 선형 축소 (하한 비율).
+# 스윕 (07-27): 강한 감속(3L/0.4)은 저속 미끄럼 회복 지연으로 역효과(1.304).
+# 완만(2L/0.6)이 최적: 경로비 1.153 — 이 코스 기하의 물리 바닥 근처.
+SLOWDOWN_RADIUS_OVER_L = 2.0
+SLOWDOWN_MIN_FRACTION = 0.6
 DT_DEFAULT = 0.05           # [s]
 
-# 선수각 제어 설계 — 추력 여력 기반 (임의 상수 금지):
-#   Kp: 오차 90°에서 최대 가용 모멘트의 이 비율을 명령하도록 산정
-#       Kp = FRACTION·M_max/(π/2),  M_max = T_max·간격
-#   Kd: 목표 감쇠비 ζ 기준 총감쇠에서 배 자체 감쇠 Nr 공제 (하한 0)
-#       — Nr가 이미 충분히 크면 Kd=0 (과감쇠 허용: 오버슈트 없음이 우선)
-# 이력: ① 임의 상수 게인 → 포화 한계 사이클로 S자 요동 (경로비 ~2)
-#       ② 대역폭 기준 → 가용 모멘트 6%만 사용, 과감쇠 거북이 (600s 미완)
-KP_MOMENT_FRACTION = 0.7
-YAW_DAMPING_RATIO = 1.0
+# 선수각 제어 설계 — 고유값 판별 기반 (2026-07-27 개편):
+# 발견: 통통한 맨몸 선체(L/B~2)는 직진 방향 불안정 (판별식 C<0, 실선도
+# 그래서 스케그·쌍동을 씀). 헤딩 P만으로는 횡미끄럼-선회 결합이 한계
+# 사이클(잔물결 1.3m 고착)을 만든다 — dt 무관, 게인 단순 조정 무효 확인.
+# 해법: 추종 루프 선형화 행렬의 고유값을 실행 시 검사해, 후보 사다리에서
+# 첫 안정 조합(최대 실부 < 여유)을 채택. 후보는 (Kp 모멘트비, lookahead/L,
+# Kd/I_z) — 약한 것부터 에스컬레이션.
+GAIN_CANDIDATES = [
+    (0.7, 6.0, 0.0),   # 순한 기본 (안정 선체용)
+    (1.5, 6.0, 3.0),
+    (3.0, 4.0, 3.0),
+    (6.0, 4.0, 7.5),   # 불안정 선체 제압용 (현 데모 선체가 여기 안착)
+]
+STABILITY_MARGIN = 0.02     # 요구: 최대 고유값 실부 < -이 값
 KP_SPEED = 8.0              # 속도 오차 → 공통 추력 (m_x/10 스케일 곱)
+
+
+def _tracking_matrix(vessel: VesselModel, u0: float, kp: float, kd: float,
+                     lookahead: float) -> np.ndarray:
+    """직선 추종 폐루프 선형화: 상태 [횡이탈 e, ψ, v, r]."""
+    return np.array([
+        [0.0, u0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, -vessel.yv / vessel.m_y,
+         -(vessel.m_x / vessel.m_y) * u0],
+        [-kp / (lookahead * vessel.i_z), -kp / vessel.i_z,
+         -vessel.nv / vessel.i_z, -(vessel.nr + kd) / vessel.i_z],
+    ])
+
+
+def design_gains(vessel: VesselModel, u_desired: float
+                 ) -> tuple[float, float, float, dict]:
+    """고유값 판별로 (kp_psi, kd_psi, lookahead) 선정. 실패 시 마지막 후보 + 경고."""
+    moment_max = vessel.thrust_max * vessel.thruster_sep
+    info = {}
+    for kp_frac, look_l, kd_over_iz in GAIN_CANDIDATES:
+        kp = kp_frac * moment_max / (math.pi / 2.0)
+        kd = kd_over_iz * vessel.i_z
+        lookahead = look_l * vessel.loa
+        eig = np.linalg.eigvals(_tracking_matrix(vessel, u_desired, kp, kd,
+                                                 lookahead))
+        worst = float(max(e.real for e in eig))
+        info = {"kp_frac": kp_frac, "lookahead_over_l": look_l,
+                "kd_over_iz": kd_over_iz, "max_eig_real": worst,
+                "stable": worst < -STABILITY_MARGIN}
+        if info["stable"]:
+            return kp, kd, lookahead, info
+    return kp, kd, lookahead, info  # 전부 불안정 — 마지막 후보 + stable=False
 
 RESISTANCE_SAMPLES = 8      # 저항곡선 사전 샘플 수
 RESISTANCE_SPEED_FACTOR = 1.6  # 샘플 상한 / 목표 속도
@@ -142,6 +190,7 @@ class SimResult:
     waypoints_reached: int = 0
     success: bool = False
     duration_s: float = 0.0
+    control_design: dict = field(default_factory=dict)
 
 
 def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]],
@@ -149,16 +198,15 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
                        t_max: float = 600.0) -> SimResult:
     """LOS 유도 + PD 선수각 + P 속도 제어로 웨이포인트 순회."""
     accept = ACCEPT_RADIUS_OVER_L * vessel.loa
-    # 추력 여력 기반 게인 (모듈 상단 설계식·이력 참조)
-    moment_max = vessel.thrust_max * vessel.thruster_sep
-    kp_psi = KP_MOMENT_FRACTION * moment_max / (math.pi / 2.0)
-    kd_psi = max(0.0, 2.0 * YAW_DAMPING_RATIO
-                 * math.sqrt(kp_psi * vessel.i_z) - vessel.nr)
+    # 고유값 판별 게인 선정 (모듈 상단 설계 노트 참조)
+    kp_psi, kd_psi, lookahead, design_info = design_gains(vessel, u_desired)
     kp_u = KP_SPEED * vessel.m_x / 10.0       # [N/(m/s)]
 
     state = np.zeros(6)
     result = SimResult()
+    result.control_design = design_info
     wp_index = 0
+    prev_wp = (0.0, 0.0)  # 경로선 시작점 (출발 위치)
     steps = int(t_max / dt)
 
     for k in range(steps):
@@ -167,6 +215,7 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
         x, y, psi, u, v, r = state
 
         if math.hypot(wx - x, wy - y) < accept:
+            prev_wp = (wx, wy)
             wp_index += 1
             result.waypoints_reached = wp_index
             if wp_index == len(waypoints):
@@ -175,13 +224,26 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
                 break
             wx, wy = waypoints[wp_index]
 
-        # LOS + PD + P — 배분은 선회 우선: 포화 시에도 명령 모멘트 보존
-        psi_d = math.atan2(wy - y, wx - x)
+        # lookahead LOS: 경로선(이전 WP→현재 WP) 기준 이탈 거리를
+        # lookahead 앞 지점에서 되찾는 방향각
+        px, py = prev_wp
+        alpha = math.atan2(wy - py, wx - px)          # 경로선 방향
+        e_ct = (-(x - px) * math.sin(alpha)
+                + (y - py) * math.cos(alpha))          # cross-track (+좌측)
+        psi_d = alpha + math.atan2(-e_ct, lookahead)
+
+        # 코너 감속: 웨이포인트 접근 시 목표 속도 축소 (관성 오버슛 억제)
+        dist_wp = math.hypot(wx - x, wy - y)
+        slow_r = max(SLOWDOWN_RADIUS_OVER_L * vessel.loa, 1e-9)
+        u_cmd = u_desired * float(np.clip(dist_wp / slow_r,
+                                          SLOWDOWN_MIN_FRACTION, 1.0))
+
+        # PD + P — 배분은 선회 우선: 포화 시에도 명령 모멘트 보존
         moment_cmd = kp_psi * ssa(psi_d - psi) - kd_psi * r
         diff = moment_cmd / vessel.thruster_sep  # (T_R − T_L)/2
         diff = float(np.clip(diff, -vessel.thrust_max, vessel.thrust_max))
         headroom = vessel.thrust_max - abs(diff)
-        common = float(np.clip(kp_u * (u_desired - u), -headroom, headroom))
+        common = float(np.clip(kp_u * (u_cmd - u), -headroom, headroom))
         t_l = common - diff
         t_r = common + diff
 
