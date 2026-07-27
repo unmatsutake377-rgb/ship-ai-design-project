@@ -3,4 +3,6 @@ pandas
 trimesh
 shapely
 mapbox_earcut
+pymoo
+numpy-stl  # Ship-D 형상 엔진(HullParameterization) 의존성
 pytest
