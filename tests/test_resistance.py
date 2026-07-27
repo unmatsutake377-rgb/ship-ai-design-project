@@ -81,6 +81,30 @@ def test_michell_magnitude_band():
     assert 4e-4 < cw < 4e-3
 
 
+def test_mesh_michell_matches_analytic_wigley():
+    """일반화 검증의 핵심: 메쉬판 Michell을 해석판과 같은 Wigley에서 대조.
+
+    해석판은 Wigley 문헌 벤치마크를 통과한 기준 — 메쉬판이 이를 5% 내로
+    재현하면 임의 형상(Ship-D)에도 신뢰 근거 확보.
+    """
+    from src.ai.hull_generator import generate_hull_mesh
+    from src.core.types import MainDimensions
+    from src.physics.resistance import michell_wave_resistance_mesh
+
+    dims = MainDimensions(loa=4.0, beam=1.0, depth=0.40, draft_design=0.25,
+                          cb=0.50)
+    mesh = generate_hull_mesh(dims, n_stations=121, n_below=29)
+    from src.ai.hull_generator import solve_exponents
+
+    n, m = solve_exponents(dims.cb)
+    for fn in (0.20, 0.316):
+        v = _fn_to_speed(fn)
+        analytic = michell_wave_resistance(4.0, 1.0, 0.25, n, m,
+                                           draft=0.20, speed=v)
+        from_mesh = michell_wave_resistance_mesh(mesh, draft=0.20, speed=v)
+        assert from_mesh == pytest.approx(analytic, rel=0.05), f"Fn={fn}"
+
+
 def test_total_resistance_report():
     from src.ai.hull_generator import generate_hull_mesh, solve_exponents
     from src.core.types import MainDimensions

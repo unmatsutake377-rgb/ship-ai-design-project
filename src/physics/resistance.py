@@ -86,6 +86,74 @@ def michell_wave_resistance(loa: float, beam: float, draft_design: float,
                  * np.trapezoid(integrand, us))
 
 
+def hull_offsets(mesh: trimesh.Trimesh, draft: float, n_x: int = 60,
+                 n_z: int = 30) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """메쉬에서 수선하 반폭표 추출: (xs, zs, y_half[n_x, n_z]).
+
+    각 스테이션에서 선체를 종단면으로 잘라, 깊이별 최대 |y|를 반폭으로.
+    임의 형상(Ship-D 포함)용 — 해석형 Wigley 가정 없음.
+    """
+    below = immersed_mesh(mesh, draft)
+    x_min, x_max = float(below.bounds[0][0]), float(below.bounds[1][0])
+    span = x_max - x_min
+    xs = np.linspace(x_min + 1e-4 * span, x_max - 1e-4 * span, n_x)
+    zs = np.linspace(0.0, draft, n_z)
+    y_half = np.zeros((n_x, n_z))
+    for i, x in enumerate(xs):
+        section = below.section(plane_origin=[x, 0, 0],
+                                plane_normal=[1, 0, 0])
+        if section is None:
+            continue
+        for loop in section.discrete:
+            pts = np.asarray(loop)
+            # 스캔라인: 각 z에서 단면 다각형 변과의 교차 y를 보간해 최대 반폭.
+            # (bin 방식은 격자를 좁히면 꼭짓점 사이 빈틈에 떨어져 0으로 샘 —
+            #  해상도 올릴수록 오차가 커지던 버그의 원인이었음, 2026-07-27)
+            z1, z2 = pts[:-1, 2], pts[1:, 2]
+            y1, y2 = pts[:-1, 1], pts[1:, 1]
+            dz = z2 - z1
+            valid = np.abs(dz) > 1e-12
+            for j, z in enumerate(zs):
+                crossing = valid & (np.minimum(z1, z2) <= z) \
+                    & (z <= np.maximum(z1, z2))
+                if crossing.any():
+                    t = (z - z1[crossing]) / dz[crossing]
+                    y_at = y1[crossing] + t * (y2[crossing] - y1[crossing])
+                    y_half[i, j] = max(y_half[i, j], float(np.abs(y_at).max()))
+    return xs, zs, y_half
+
+
+def michell_wave_resistance_mesh(mesh: trimesh.Trimesh, draft: float,
+                                 speed: float, rho: float = RHO_SEAWATER,
+                                 n_u: int = 120, n_x: int = 120,
+                                 n_z: int = 60) -> float:
+    """임의 메쉬용 Michell 조파저항 [N] — 해석형(Wigley 전용)의 일반화.
+
+    반폭표를 수치로 뽑아 ∂y/∂x를 유한차분, 이중적분을 격자합으로.
+    검증: 같은 Wigley 선체에서 해석형 michell_wave_resistance와 교차 대조
+    (테스트 test_mesh_michell_matches_analytic_wigley).
+    """
+    xs, zs, y_half = hull_offsets(mesh, draft, n_x=n_x, n_z=n_z)
+    dydx = np.gradient(y_half, xs, axis=0)          # (n_x, n_z)
+    depth_below = draft - zs                          # (n_z,)
+
+    k0 = G / speed ** 2
+    us = np.linspace(1e-4, 4.0, n_u)
+    lam = np.cosh(us)
+
+    # z 적분: 각 (λ, x)에 대해 ∫ dydx·exp(−k0λ²d) dz → (n_u, n_x)
+    expo = np.exp(-k0 * lam[:, None] ** 2 * depth_below[None, :])  # (n_u, n_z)
+    zint = np.trapezoid(dydx[None, :, :] * expo[:, None, :], zs, axis=2)
+
+    phase = k0 * lam[:, None] * xs[None, :]                        # (n_u, n_x)
+    p = np.trapezoid(zint * np.cos(phase), xs, axis=1)
+    q = np.trapezoid(zint * np.sin(phase), xs, axis=1)
+
+    integrand = (p ** 2 + q ** 2) * lam ** 2
+    return float(4.0 * rho * G ** 2 / (np.pi * speed ** 2)
+                 * np.trapezoid(integrand, us))
+
+
 @dataclass(frozen=True)
 class ResistanceReport:
     speed: float
