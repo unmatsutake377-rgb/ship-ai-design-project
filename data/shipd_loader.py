@@ -46,7 +46,12 @@ def _hull_parameterization():
 
 def reconstruct_mesh(vector: np.ndarray, num_wl: int = 40,
                      points_per_wl: int = 200) -> trimesh.Trimesh:
-    """45파라미터 벡터 → trimesh 메쉬 (Ship-D 원저자 코드로 생성)."""
+    """45파라미터 벡터 → trimesh 메쉬 (Ship-D 원저자 코드로 생성).
+
+    주의: Ship-D 메쉬는 갑판이 열려 있음 (watertight 아님). 우리 정역학은
+    흘수선 아래만 절단(cap 포함)해 쓰므로 문제없음 — 단 흘수가 갑판에
+    접근하면 신뢰 불가 (scaled_mesh 사용처에서 검사).
+    """
     HP = _hull_parameterization()
     hull = HP(np.asarray(vector, dtype=np.float64))
     with tempfile.TemporaryDirectory() as tmp:
@@ -54,3 +59,16 @@ def reconstruct_mesh(vector: np.ndarray, num_wl: int = 40,
         hull.gen_stl(NUM_WL=num_wl, PointsPerWL=points_per_wl,
                      namepath=namepath)
         return trimesh.load(namepath + ".stl")
+
+
+def scaled_mesh(vector: np.ndarray, target_loa: float,
+                num_wl: int = 40, points_per_wl: int = 160) -> trimesh.Trimesh:
+    """USV 스케일 전이: Ship-D는 전 척 LOA=10 정규화 → 목표 길이로 상사 축소.
+
+    기하학적 상사(similarity): 길이비 λ = target/10, 부피는 λ³ 스케일.
+    형상만 전이한다는 결정(2026-07-26)의 구현 지점.
+    """
+    mesh = reconstruct_mesh(vector, num_wl=num_wl,
+                            points_per_wl=points_per_wl)
+    mesh.apply_scale(target_loa / 10.0)
+    return mesh
