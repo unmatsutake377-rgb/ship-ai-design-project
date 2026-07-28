@@ -22,20 +22,28 @@ def result():
     return screen(GOAL, target_loa=3.0, n_samples=8, seed=11)
 
 
-def test_screen_returns_some_feasible(result):
-    assert len(result) >= 1
-    assert result["feasible"].all()
+def test_screen_keeps_all_rows_with_labels(result):
+    """탈락 행도 보존 — 대리모델 분류 학습용 (결손 라벨 버그 회귀 방지)."""
+    assert len(result) == 8  # 표본 전체 보존
+    ok = result[result["feasible"]]
+    assert len(ok) >= 1
     for col in ("hull_id", "resistance_n", "total_mass_kg",
-                "stability_margin", "pareto"):
+                "stability_margin", "pareto", "reason"):
         assert col in result.columns
-    assert np.isfinite(result[["resistance_n", "total_mass_kg"]]
+    assert np.isfinite(ok[["resistance_n", "total_mass_kg"]]
                        .to_numpy()).all()
+    # 탈락 행은 pareto=False + 사유 기록
+    rejected = result[~result["feasible"]]
+    if len(rejected):
+        assert (~rejected["pareto"]).all()
+        assert rejected["reason"].str.len().gt(0).all()
 
 
 def test_pareto_marks_nondominated(result):
-    f = np.column_stack([result["resistance_n"], result["total_mass_kg"],
-                         -result["stability_margin"]])
-    front = result["pareto"].to_numpy()
+    ok = result[result["feasible"]].reset_index(drop=True)
+    f = np.column_stack([ok["resistance_n"], ok["total_mass_kg"],
+                         -ok["stability_margin"]])
+    front = ok["pareto"].to_numpy()
     assert front.any()
     for i in np.where(front)[0]:
         for j in range(len(f)):

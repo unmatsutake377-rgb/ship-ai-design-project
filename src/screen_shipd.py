@@ -94,8 +94,13 @@ def screen(goal: GoalSpec, target_loa: float, n_samples: int = 300,
     df = pd.DataFrame(rows)
     feasible = df[df["feasible"]].reset_index(drop=True)
     if feasible.empty:
-        return feasible.assign(pareto=pd.Series(dtype=bool))
-    return _mark_pareto(feasible)
+        return df.assign(pareto=False)
+    marked = _mark_pareto(feasible)
+    # 탈락 행도 보존 (pareto=False) — 대리모델 타당성 분류 학습에 필수.
+    # (초기 버전은 feasible만 저장 → 분류기가 '전부 통과'를 학습하는
+    #  결손 라벨 버그가 있었음, 2026-07-28)
+    rejected = df[~df["feasible"]].assign(pareto=False)
+    return pd.concat([marked, rejected], ignore_index=True)
 
 
 def plot_screen(df: pd.DataFrame, path: str | Path) -> None:
@@ -146,18 +151,20 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / "screen.csv", index=False)
-    if df.empty:
+    ok = df[df["feasible"]]
+    if ok.empty:
         print("feasible 0척 — 조건 완화 필요")
         return 2
-    plot_screen(df, out / "pareto.png")
+    plot_screen(ok, out / "pareto.png")
 
-    front = df[df["pareto"]].sort_values("resistance_n")
+    front = ok[ok["pareto"]].sort_values("resistance_n")
     vectors, _ = shipd_loader.load_vectors()
     for rank, (_, row) in enumerate(front.head(3).iterrows(), 1):
         mesh = shipd_loader.scaled_mesh(vectors[int(row.hull_id)], args.loa)
         mesh.export(out / f"pareto_{rank}_hull{int(row.hull_id)}.stl")
 
-    print(f"통과 {len(df)}척 / 파레토 {df['pareto'].sum()}척 → {out}/")
+    print(f"평가 {len(df)}척 (통과 {len(ok)}) / 파레토 "
+          f"{int(ok['pareto'].sum())}척 → {out}/")
     return 0
 
 
