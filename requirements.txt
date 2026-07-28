@@ -6,4 +6,5 @@ mapbox_earcut
 pymoo
 numpy-stl  # Ship-D 형상 엔진(HullParameterization) 의존성
 torch      # M5b-1 대리모델 (Apple MPS)
+pyyaml
 pytest
