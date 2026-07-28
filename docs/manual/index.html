@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자율운항 선박 설계 자동화 PoC - 통합 시스템 명세서</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 30px 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #2980b9;
+            margin-top: 30px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        h3 {
+            color: #34495e;
+        }
+        .notice {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 10px 15px;
+            margin: 20px 0;
+            font-size: 0.9em;
+            color: #2c3e50;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .flow-box {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: "Courier New", Courier, monospace;
+            line-height: 1.5;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        .tag-done {
+            display: inline-block;
+            background: #27ae60;
+            color: white;
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-right: 5px;
+        }
+        .tag-progress {
+            display: inline-block;
+            background: #f39c12;
+            color: white;
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-right: 5px;
+        }
+        .tag-essential {
+            display: inline-block;
+            background: #e74c3c;
+            color: white;
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 12px;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>자율운항 선박 설계 자동화 PoC<br><small>통합 시스템 명세 및 온보딩 가이드</small></h1>
+    <div class="subtitle">대상 독자: 프로젝트를 돌아보는 미래의 '나', 그리고 프로젝트에 처음 합류하는 팀원 및 기여자</div>
+
+    <div class="notice">
+        <strong>문서 상태 (2026-07-28 기준):</strong> 본 문서는 PoC 파이프라인의 설계 철학, 물리적 검증 내역, 그리고 인지된 기술 부채를 투명하게 기록한 단일 진실 출처(Single Source of Truth)입니다. 코드를 읽기 전 반드시 전체 아키텍처의 흐름을 파악하는 지도로 활용하십시오.
+    </div>
+
+    <h2>1. 프로젝트 개요</h2>
+    <ul>
+        <li><strong>최종 목표:</strong> 사용자가 운항 목적(용도, 탑재량 등)을 입력하면, 물리적으로 검증된 최적의 선형 후보들을 자동 생성하고, 이를 즉시 ROS2/Gazebo 시뮬레이션 환경에 투입해 자율운항 알고리즘 테스트까지 직결시키는 End-to-End 파이프라인 구축.</li>
+        <li><strong>주요 타겟:</strong> 1~3m급 소형 무인수상정(USV). 현재 저속 배수량형(Fn < 0.4)을 완전 지원하며, 조사용(Survey) USV를 데모 시나리오로 활용.</li>
+        <li><strong>개발 및 검증 규율:</strong> 모든 물리 모듈은 해석해, 문헌, 혹은 독립 구현 대조를 통한 '정답지 있는 검증'을 통과해야 병합됨 (현재 pytest 149개 전수 통과).</li>
+        <li><strong>개발 환경:</strong> macOS Apple Silicon, Python 3.13, Docker Desktop (ROS2용).</li>
+    </ul>
+
+    <h2>2. 전체 시스템 아키텍처</h2>
+
+    <h3><span class="tag-done">Phase A 완료</span> 선형 설계, 검증 및 최적화</h3>
+    <p>단일 명령어(<code>python -m src.pipeline --payload 100 --purpose survey</code>)로 실행되는 선형 탐색 공정입니다.</p>
+    <table>
+        <tr>
+            <th>모듈</th>
+            <th>역할 및 기능</th>
+            <th>검증 근거</th>
+        </tr>
+        <tr>
+            <td><strong>ai/presets</strong></td>
+            <td>용도(Purpose) 선택 시 실선 통계 기반 순항 속도 자동 할당</td>
+            <td>데이터 및 개략 출처 표시</td>
+        </tr>
+        <tr>
+            <td><strong>ai/dimension_estimator</strong></td>
+            <td>실선 USV 통계(L/B≈2.0 등) 기반 치수 추정 및 제약 세팅</td>
+            <td>실선 데이터 CSV 자동 심사</td>
+        </tr>
+        <tr>
+            <td><strong>physics/hydrostatics</strong></td>
+            <td>평형 흘수 역산, GM/B 밴드(0.04~0.40) 필터링</td>
+            <td>직육면체 바지선 해석해 대조</td>
+        </tr>
+        <tr>
+            <td><strong>physics/resistance</strong></td>
+            <td>ITTC-57 마찰 저항 + Michell 박선이론 조파 저항 계산</td>
+            <td>Wigley 벤치마크 및 이중 검증 (해석해 대비 0.3~0.6%, 원저자 독립 구현 대비 비 0.93~1.00)</td>
+        </tr>
+        <tr>
+            <td><strong>physics/coefficients</strong></td>
+            <td>Fossen 3자유도 조종 계수 도출 (Clarke 회귀 분석)</td>
+            <td>차원 스케일 대조 및 음수 관성 발산 방지 클램프</td>
+        </tr>
+        <tr>
+            <td><strong>최적화 계층 (M5)</strong></td>
+            <td>NSGA-II 다목적 최적화 및 Ship-D 데이터셋 3만 척 대리모델(MLP) 초고속 가상 선별 → 상위 모델 물리 재검증</td>
+            <td>재검증 원칙에 따른 100% 실물리 무오염 데이터</td>
+        </tr>
+        <tr>
+            <td><strong>HITL (ELO)</strong></td>
+            <td>인간 개입(Human-in-the-loop) 파레토 쌍대비교 랭킹 산출</td>
+            <td>ELO 성질 테스트 7종 통과</td>
+        </tr>
+    </table>
+
+    <h3><span class="tag-progress">Phase B 진행중</span> ROS2 및 시뮬레이션 통합</h3>
+    <ul>
+        <li><strong>B-1 (완료):</strong> Mac Docker 기반 <code>ros:jazzy</code> 이미지 토픽 통신 확인. 설계 결과를 URDF 및 유체계수 YAML로 자동 변환 (컨테이너 내 <code>check_urdf</code> 파싱 성공).</li>
+        <li><strong>B-2 (다음 단계):</strong> Gazebo(gz sim) 컨테이너에 선체 스폰 및 부력/유체 플러그인 연결.</li>
+        <li><strong>B-3 (진행 예정):</strong> 차동추력 제어 이식(python_sim의 고유값 판별 게인 재사용) 및 자율운항 테스트베드화.</li>
+    </ul>
+
+    <h3><span class="tag-progress">Phase C 추후 계획</span> 유체 해석 고도화 및 고속선 확장</h3>
+    <p>설계만 존재하는 확장 계획입니다 (착수 시점은 오너 결정).</p>
+    <ul>
+        <li>실선 USV의 주 운항 영역인 반배수량(Fn 0.4~1.0) 및 활주 체계(Savitsky) 물리 모델 확장.</li>
+        <li>OpenFOAM CFD를 활용한 파레토 상위 후보 고정밀 해석 훅(Hook) 연결 및 라벨 피드백(능동 학습 루프) 구축.</li>
+    </ul>
+
+    <h2>3. 데이터 흐름도 (Data Flow)</h2>
+    <div class="flow-box">
+[입력] 용도(survey/patrol/workboat) + 탑재량(kg) + 선택 조건(LOA, Speed)
+   ↓
+[P1: 제약 세팅] 용도 프리셋 → 실선 통계 치수 기반 3체계(배수량/반배수량/활주) 판정
+   ↓
+[P2: 설계·검증] 선형 생성(Wigley/Ship-D) → 설계 나선 수렴(중량↔흘수↔저항↔모터) → 필수 물리 필터
+   ↓
+[P2b: 대량 탐색] 대리모델(MLP) 3만 척 가상 스캔 → 상위 후보만 실물리 재검증 → 합산 파레토 전선 도출
+   ↓
+[P3: 인간 선택] 파레토 후보들에 대한 쌍대비교(ELO 랭킹)를 통한 직관적 최종 모델 확정
+   ↓
+[출력] 최종 선형 STL, 파레토 CSV, ROS2용 URDF, 유체계수 YAML, 웨이포인트 궤적 플롯
+    </div>
+
+    <h2>4. 인지된 시스템 한계 (Known Issues & Tech Debt)</h2>
+    <p>본 프로젝트는 한계를 숨기지 않고 투명하게 기록하여 고도화의 나침반으로 삼습니다.</p>
+    <ul>
+        <li><strong>Michell 박선이론 한계:</strong> 트랜섬 선미 후방의 유동 박리저항을 수학적으로 모델링하지 못해 Ship-D 류 선형의 저항이 과소평가될 수 있음. 잔잔한 물 가정으로 내항성(파랑) 미평가.</li>
+        <li><strong>대리모델(MLP) 소표본 문제:</strong> 45차원 매개변수 학습 시 초기 라벨 부족으로 회귀 R²가 저조함. (대책: 시스템 구동을 통한 정상 라벨 축적 및 재학습 루프 가동).</li>
+        <li><strong>실무적 운송 지표(갑판 면적) 누락:</strong> 현재 저항/중량/안정여유 3축 최적화로 인해 '탑재 공간(MaxBox)' 요소가 알고리즘에 반영되지 않음. (백로그 등록됨: 4번째 목적 함수 vs 필수 제약 — 미결정, 오너 논의 예정).</li>
+        <li><strong>조종 계수 외삽 주의:</strong> 대형 상선(B/L 0.1~0.2) 데이터를 USV(B/L~0.5)에 외삽함에 따른 수학적 발산 위험. (대책: 음수 관성 방지 클램프 및 상시 경고 플래그 적용 중).</li>
+    </ul>
+
+</div>
+
+</body>
+</html>
