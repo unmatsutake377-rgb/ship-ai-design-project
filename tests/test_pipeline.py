@@ -76,6 +76,18 @@ def test_rejection_message_has_alternatives(tmp_path):
     assert "최소" in err       # 이 속도에 필요한 길이
 
 
+def test_cli_speed_optional_uses_preset(tmp_path):
+    """3입력 UX (#25): 속도 생략 → 용도 프리셋 (실선 순항 중앙값)."""
+    result = subprocess.run(
+        [sys.executable, "-m", "src.pipeline",
+         "--payload", "100", "--purpose", "survey", "--out", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode in (0, 2), result.stderr
+    assert "용도 프리셋 적용" in result.stdout
+    assert "실선" in result.stdout  # survey는 데이터 근거
+
+
 def test_cli_smoke(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "src.pipeline",

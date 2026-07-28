@@ -207,8 +207,9 @@ def _print_summary(report: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="목적 지향형 선박 설계 PoC")
-    parser.add_argument("--speed", type=float, required=True,
-                        help="목표 속도 [m/s]")
+    parser.add_argument("--speed", type=float, default=None,
+                        help="목표 속도 [m/s] (생략 시 용도 프리셋 — "
+                             "실선 순항 중앙값)")
     parser.add_argument("--payload", type=float, required=True,
                         help="적재량 [kg]")
     parser.add_argument("--purpose", required=True,
@@ -218,7 +219,21 @@ def main(argv: list[str] | None = None) -> int:
                         help="선체 길이 직접 지정 [m] (생략 시 적재량에서 역산)")
     args = parser.parse_args(argv)
 
-    goal = GoalSpec(target_speed_ms=args.speed, payload_kg=args.payload,
+    # 3입력 UX (#25 오너 제안): 속도 생략 시 용도가 결정
+    speed = args.speed
+    if speed is None:
+        from src.ai.presets import purpose_presets
+
+        preset = purpose_presets().get(args.purpose)
+        if preset is None:
+            print(f"[중단] 알 수 없는 용도: {args.purpose}", file=sys.stderr)
+            return 3
+        speed = preset.default_speed_ms
+        origin = (f"실선 {preset.n_samples}척 순항 중앙값"
+                  if preset.speed_source == "data" else "개략 기본값")
+        print(f"속도 미지정 → 용도 프리셋 적용: {speed:.2f} m/s ({origin})")
+
+    goal = GoalSpec(target_speed_ms=speed, payload_kg=args.payload,
                     purpose=args.purpose)
     try:
         report = run_pipeline(goal, args.out, loa=args.loa)
