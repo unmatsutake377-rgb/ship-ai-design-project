@@ -52,14 +52,18 @@ class SpiralNotConvergedError(RuntimeError):
 from src.physics.weights import estimate_weights
 
 
-def design_spiral(mesh, dims, goal: GoalSpec):
+def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None):
     """설계 나선: 중량 → 흘수 → 저항 → 모터·배터리 → 중량 … 수렴까지.
 
     추진계 중량을 고정비율 개략에서 시작해 실측(모터+배터리)으로 수렴.
     반환: (weights, hydro, resist, motors, batt_kg, iteration).
-    run_pipeline과 최적화기(src/optimize.py)가 공유하는 평가 코어.
+    run_pipeline·최적화기·Ship-D 선별기가 공유하는 평가 코어.
+
+    resistance_fn(mesh, draft, speed) 주입 시 그 경로 사용 (예: 메쉬형
+    Michell — Ship-D 임의 형상). 기본은 Wigley 해석 경로.
     """
-    n_exp, m_exp = solve_exponents(dims.cb)
+    n_exp, m_exp = solve_exponents(dims.cb) if resistance_fn is None \
+        else (None, None)
     propulsion_mass: float | None = None
     prev_total: float | None = None
     for iteration in range(1, MAX_SPIRAL_ITER + 1):
@@ -68,9 +72,12 @@ def design_spiral(mesh, dims, goal: GoalSpec):
                                    loa=dims.loa)
         hydro = evaluate(mesh, weights.total_mass, weights.kg,
                          beam=dims.beam, depth=dims.depth)
-        resist = total_resistance(mesh, dims, n_exp, m_exp,
-                                  draft=hydro.draft,
-                                  speed=goal.target_speed_ms)
+        if resistance_fn is None:
+            resist = total_resistance(mesh, dims, n_exp, m_exp,
+                                      draft=hydro.draft,
+                                      speed=goal.target_speed_ms)
+        else:
+            resist = resistance_fn(mesh, hydro.draft, goal.target_speed_ms)
         motors = select_motors(resist.total)
         batt_kg = battery_mass(resist.effective_power, goal.endurance_h)
         propulsion_mass = motors.total_weight_kg + batt_kg

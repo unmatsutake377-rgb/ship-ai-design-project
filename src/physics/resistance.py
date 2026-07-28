@@ -168,18 +168,36 @@ class ResistanceReport:
     effective_power: float  # Pe = R·V [W]
 
 
+def _assemble_report(speed: float, loa: float, s_wet: float, rf: float,
+                     rw: float) -> ResistanceReport:
+    total = rf + rw
+    return ResistanceReport(
+        speed=speed, froude=speed / math.sqrt(G * loa),
+        reynolds=reynolds(speed, loa),
+        wetted_area=s_wet, cf=ittc_cf(reynolds(speed, loa)),
+        form_factor=FORM_FACTOR,
+        rf=rf, rw=rw, total=total, effective_power=total * speed,
+    )
+
+
 def total_resistance(mesh: trimesh.Trimesh, dims: MainDimensions,
                      n: float, m: float, draft: float,
                      speed: float, rho: float = RHO_SEAWATER) -> ResistanceReport:
+    """전저항 — Wigley 경로 (조파는 해석형 Michell)."""
     s_wet = wetted_surface(mesh, draft)
-    re = reynolds(speed, dims.loa)
-    cf = ittc_cf(re)
     rf = frictional_resistance(speed, dims.loa, s_wet, rho)
     rw = michell_wave_resistance(dims.loa, dims.beam, dims.draft_design,
                                  n, m, draft, speed, rho)
-    total = rf + rw
-    return ResistanceReport(
-        speed=speed, froude=speed / math.sqrt(G * dims.loa), reynolds=re,
-        wetted_area=s_wet, cf=cf, form_factor=FORM_FACTOR,
-        rf=rf, rw=rw, total=total, effective_power=total * speed,
-    )
+    return _assemble_report(speed, dims.loa, s_wet, rf, rw)
+
+
+def total_resistance_mesh(mesh: trimesh.Trimesh, loa: float, draft: float,
+                          speed: float,
+                          rho: float = RHO_SEAWATER) -> ResistanceReport:
+    """전저항 — 임의 메쉬 경로 (조파는 이중검증된 메쉬형 Michell).
+
+    Ship-D 등 해석형 가정이 없는 형상용 (spec §7 2차)."""
+    s_wet = wetted_surface(mesh, draft)
+    rf = frictional_resistance(speed, loa, s_wet, rho)
+    rw = michell_wave_resistance_mesh(mesh, draft, speed, rho)
+    return _assemble_report(speed, loa, s_wet, rf, rw)
