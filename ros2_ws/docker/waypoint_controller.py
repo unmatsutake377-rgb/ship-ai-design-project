@@ -89,9 +89,11 @@ def main():
         u_cmd = cfg["u_desired"] * frac
 
         moment = cfg["kp_psi"] * ssa(psi_d - psi) - cfg["kd_psi"] * r
-        diff = max(-cfg["thrust_max"],
-                   min(cfg["thrust_max"],
-                       moment / cfg["thruster_separation"]))
+        # 부호 반전: gz Thruster의 차동→요 모멘트 방향이 우리 규약과 반대
+        # (07-29 실측: 반시계 명령에 시계 회전 — 플러그인 방향 규약)
+        diff = -max(-cfg["thrust_max"],
+                    min(cfg["thrust_max"],
+                        moment / cfg["thruster_separation"]))
         headroom = cfg["thrust_max"] - abs(diff)
         common = max(-headroom, min(headroom, cfg["kp_u"] * (u_cmd - u)))
 
