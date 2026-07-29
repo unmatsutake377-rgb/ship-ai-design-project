@@ -103,21 +103,104 @@ def export_hydro_yaml(report: dict, out_dir: str | Path) -> Path:
     return path
 
 
+def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
+               collision: str = "mesh") -> Path:
+    """Gazebo용 model.sdf + 부력 월드 world.sdf (Phase B-2b).
+
+    collision:
+    - "mesh": 선체 STL 그대로 (Gazebo 부력의 메쉬 부피 처리는 근사 가능성 —
+      결과 해석 시 감안)
+    - "box": L×B×D 직육면체 — 정착 흘수 해석해 T=m/(ρ·L·B)가 존재하는
+      바지선 검정용 (Gazebo 부력 셋업 자체의 정답지 검증, B-2c 1단계)
+    수면은 z=0, 모델은 예측 흘수만큼 잠긴 자세로 초기 배치.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    d = report["dimensions"]
+    w = report["weights"]
+    h = report["hydrostatics"]
+    mass = w["total_mass"]
+    ixx = mass * (KXX_OVER_B * d["beam"]) ** 2
+    iyy = mass * (KYY_OVER_L * d["loa"]) ** 2
+
+    if collision == "box":
+        geom_xml = (f"<box><size>{d['loa']:.4f} {d['beam']:.4f} "
+                    f"{d['depth']:.4f}</size></box>")
+        # 상자 중심 = 형심 중앙 → 초기 z: 상자 하면이 해석해 흘수만큼 잠기게
+        draft_expected = mass / (1025.0 * d["loa"] * d["beam"])
+        init_z = d["depth"] / 2.0 - draft_expected
+        cg_z = 0.0  # 상자 중심 기준
+    else:
+        mesh_file = Path(mesh_path).name
+        geom_xml = f"<mesh><uri>{mesh_file}</uri></mesh>"
+        draft_expected = h["draft"]
+        init_z = -draft_expected  # 메쉬 z=0이 킬 → 킬이 흘수만큼 물밑
+        cg_z = w["kg"]
+
+    model_sdf = f"""<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="generated_hull">
+    <link name="base_link">
+      <inertial>
+        <pose>{w['lcg']:.6f} 0 {cg_z:.6f} 0 0 0</pose>
+        <mass>{mass:.6f}</mass>
+        <inertia>
+          <ixx>{ixx:.6f}</ixx><iyy>{iyy:.6f}</iyy><izz>{w['izz']:.6f}</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="hull_collision"><geometry>{geom_xml}</geometry></collision>
+      <visual name="hull_visual"><geometry>{geom_xml}</geometry></visual>
+    </link>
+  </model>
+</sdf>
+"""
+    world_sdf = f"""<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="ship_water">
+    <physics name="default" type="dartsim">
+      <max_step_size>0.005</max_step_size>
+      <real_time_factor>0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-buoyancy-system" name="gz::sim::systems::Buoyancy">
+      <uniform_fluid_density>1025</uniform_fluid_density>
+      <enable>generated_hull</enable>
+    </plugin>
+    <include>
+      <uri>model.sdf</uri>
+      <pose>0 0 {init_z:.6f} 0 0 0</pose>
+    </include>
+  </world>
+</sdf>
+"""
+    (out / "model.sdf").write_text(model_sdf)
+    path = out / "world.sdf"
+    path.write_text(world_sdf)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     import json
 
-    parser = argparse.ArgumentParser(description="ROS2 내보내기 (Phase B-1)")
+    parser = argparse.ArgumentParser(description="ROS2 내보내기 (Phase B-1/B-2)")
     parser.add_argument("--report", required=True)
     parser.add_argument("--mesh", required=True, help="hull STL 경로")
     parser.add_argument("--out", default="ros2_ws/export")
+    parser.add_argument("--collision", default="mesh", choices=["mesh", "box"],
+                        help="SDF collision: mesh(실선체) | box(바지선 검정)")
     args = parser.parse_args(argv)
 
     with open(args.report) as f:
         report = json.load(f)
     urdf = export_urdf(report, args.mesh, args.out)
     hydro = export_hydro_yaml(report, args.out)
-    print(f"내보내기 완료: {urdf}, {hydro}")
+    sdf = export_sdf(report, args.mesh, args.out, collision=args.collision)
+    print(f"내보내기 완료: {urdf}, {hydro}, {sdf}")
     return 0
 
 

@@ -57,6 +57,43 @@ def test_hydro_yaml_roundtrip(report_and_dir, tmp_path):
     assert "sign_convention" in data
 
 
+def test_sdf_box_mode_matches_barge_analytic(report_and_dir, tmp_path):
+    """box 모드: 초기 잠김 깊이 = 해석해 T = m/(ρ·L·B) (B-2c 1단계 근거)."""
+    from src.sim_adapters.ros2_export import export_sdf
+
+    report, design_dir = report_and_dir
+    path = export_sdf(report, design_dir / report["mesh_file"], tmp_path,
+                      collision="box")
+    world = ET.parse(path).getroot()
+    model = ET.parse(tmp_path / "model.sdf").getroot()
+
+    mass = float(model.find(".//inertial/mass").text)
+    assert mass == pytest.approx(report["weights"]["total_mass"], rel=1e-6)
+
+    d = report["dimensions"]
+    draft_analytic = mass / (1025.0 * d["loa"] * d["beam"])
+    pose_z = float(world.find(".//include/pose").text.split()[2])
+    assert pose_z == pytest.approx(d["depth"] / 2 - draft_analytic, abs=1e-6)
+
+    # 부력 플러그인 필수 요소
+    buoy = [p for p in world.iter("plugin")
+            if "Buoyancy" in p.get("name", "")]
+    assert len(buoy) == 1
+    assert buoy[0].find("uniform_fluid_density").text.strip() == "1025"
+
+
+def test_sdf_mesh_mode_initial_pose_is_predicted_draft(report_and_dir,
+                                                       tmp_path):
+    from src.sim_adapters.ros2_export import export_sdf
+
+    report, design_dir = report_and_dir
+    path = export_sdf(report, design_dir / report["mesh_file"], tmp_path,
+                      collision="mesh")
+    world = ET.parse(path).getroot()
+    pose_z = float(world.find(".//include/pose").text.split()[2])
+    assert pose_z == pytest.approx(-report["hydrostatics"]["draft"], abs=1e-6)
+
+
 def test_cli_writes_both_files(report_and_dir, tmp_path):
     import json
     import subprocess
