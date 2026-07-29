@@ -119,7 +119,8 @@ def export_hydro_yaml(report: dict, out_dir: str | Path) -> Path:
 
 
 def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
-               collision: str = "mesh") -> Path:
+               collision: str = "mesh",
+               waypoints: list[tuple[float, float]] | None = None) -> Path:
     """Gazebo용 model.sdf + 부력 월드 world.sdf (Phase B-2b).
 
     collision:
@@ -175,9 +176,32 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         # gz 데모는 무트림 부양으로 한정 (한계 문서화)
         cg_x = 0.0
 
+    # 웨이포인트 추종 (B-3b): gz 내장 TrajectoryFollower — 힘/토크 상수로
+    # 웨이포인트를 순회하는 단순 추종기 (LOS·PD 정밀 제어는 ROS2 이식 과제).
+    # 힘·토크 스케일은 우리 설계값에서: 추력 여유의 절반, 최대 조타 모멘트
+    follower_xml = ""
+    if waypoints:
+        p = report["propulsion"]
+        force = p["motor"]["thrust_max_n"]  # 1발 상당 — 순항 추력 여유권
+        torque = (p["motor"]["thrust_max_n"] * 0.8 * report["dimensions"]["beam"]
+                  / 2.0)
+        wp_xml = "\n".join(f"          <waypoint>{x:.3f} {y:.3f}</waypoint>"
+                           for x, y in waypoints)
+        follower_xml = f"""
+    <plugin filename="gz-sim-trajectory-follower-system"
+            name="gz::sim::systems::TrajectoryFollower">
+      <link_name>base_link</link_name>
+      <loop>false</loop>
+      <force>{force:.2f}</force>
+      <torque>{torque:.2f}</torque>
+      <waypoints>
+{wp_xml}
+      </waypoints>
+    </plugin>"""
+
     model_sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
-  <model name="generated_hull">
+  <model name="generated_hull">{follower_xml}
     <link name="base_link">
       <inertial>
         <pose>{cg_x:.6f} 0 {cg_z:.6f} 0 0 0</pose>
@@ -274,13 +298,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="ros2_ws/export")
     parser.add_argument("--collision", default="mesh", choices=["mesh", "box"],
                         help="SDF collision: mesh(실선체) | box(바지선 검정)")
+    parser.add_argument("--course-square", action="store_true",
+                        help="사각 코스(변 10L) 웨이포인트 추종 포함 (B-3b)")
     args = parser.parse_args(argv)
 
     with open(args.report) as f:
         report = json.load(f)
+    waypoints = None
+    if args.course_square:
+        s = 10.0 * report["dimensions"]["loa"]
+        waypoints = [(s, 0.0), (s, s), (0.0, s), (0.0, 0.0)]
     urdf = export_urdf(report, args.mesh, args.out)
     hydro = export_hydro_yaml(report, args.out)
-    sdf = export_sdf(report, args.mesh, args.out, collision=args.collision)
+    sdf = export_sdf(report, args.mesh, args.out, collision=args.collision,
+                     waypoints=waypoints)
     if args.collision == "mesh":
         print("⚠ mesh 모드는 실험적 — 부양 검증은 box(바지선 해석해) 모드가 "
               "기준. 실선체 완전 부양은 B-3(6자유도 계수 정합) 과제.")
