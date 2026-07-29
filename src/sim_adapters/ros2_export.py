@@ -144,13 +144,25 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         # 상자 중심 = 형심 중앙 → 초기 z: 상자 하면이 해석해 흘수만큼 잠기게
         draft_expected = mass / (1025.0 * d["loa"] * d["beam"])
         init_z = d["depth"] / 2.0 - draft_expected
+        visual_xml = geom_xml
+        collision_z = 0.0  # 상자 중심 = 링크 원점
         cg_z = 0.0   # 상자 중심 기준
         cg_x = 0.0   # 검정 목적: 트림 없는 순수 부력 확인 — CG를 부심 위에
     else:
+        # Gazebo graded 부력의 구조적 한계 (2026-07-29 실측 2건):
+        # ① 메쉬 collision → 부력 0으로 조용히 무시 (자유낙하 z=−18,123km)
+        # ② 등가 부피 상자(폭 축소) → 복원력 파괴로 전복 (GM<0)
+        # → 부력체는 외피 상자 L×B×D: 복원력 건전, 정착 흘수는 상자
+        #   해석해 T_box = m/(ρLB) 기준 (선체 실흘수보다 얕음 — 상자는
+        #   Cb=1이라). 선체 실흘수·실유체력 재현은 부피 부력으로 불가 —
+        #   B-3의 계수 기반 플러그인(hydrodynamics.yaml)이 담당할 과제.
         mesh_file = Path(mesh_path).name
-        geom_xml = f"<mesh><uri>{mesh_file}</uri></mesh>"
-        draft_expected = h["draft"]
-        init_z = -draft_expected  # 메쉬 z=0이 킬 → 킬이 흘수만큼 물밑
+        geom_xml = (f"<box><size>{d['loa']:.4f} {d['beam']:.4f} "
+                    f"{d['depth']:.4f}</size></box>")
+        visual_xml = f"<mesh><uri>{mesh_file}</uri></mesh>"
+        draft_expected = mass / (1025.0 * d["loa"] * d["beam"])  # 상자 해석해
+        init_z = -draft_expected  # 킬(z=0)이 상자 흘수만큼 물밑
+        collision_z = d["depth"] / 2.0  # 부력 상자 하면을 킬(z=0)에 정렬
         cg_z = w["kg"]
         cg_x = w["lcg"]
 
@@ -166,19 +178,43 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
           <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
         </inertia>
       </inertial>
-      <collision name="hull_collision"><geometry>{geom_xml}</geometry></collision>
-      <visual name="hull_visual"><geometry>{geom_xml}</geometry></visual>
+      <collision name="hull_collision">
+        <pose>0 0 {collision_z:.6f} 0 0 0</pose>
+        <geometry>{geom_xml}</geometry>
+      </collision>
+      <visual name="hull_visual"><geometry>{visual_xml}</geometry></visual>
     </link>
   </model>
 </sdf>
 """
+    c = report["coefficients"]
+    # gz Hydrodynamics 플러그인 (B-3 선행 적용): SNAME 부호(음수)로 조립.
+    # 역할: 부가질량 + 선형 감쇠 — 이것 없이는 진동이 영원히 안 죽어
+    # 정착 자체가 불가 (2026-07-29 실측: 무감쇠 표류 폭주)
+    hydro_xml = f"""
+    <plugin filename="gz-sim-hydrodynamics-system"
+            name="gz::sim::systems::Hydrodynamics">
+      <link_name>base_link</link_name>
+      <xDotU>{-c['xu_dot']:.4f}</xDotU>
+      <yDotV>{-c['yv_dot']:.4f}</yDotV>
+      <nDotR>{-c['nr_dot']:.4f}</nDotR>
+      <xU>{-c['xu']:.4f}</xU>
+      <yV>{-c['yv']:.4f}</yV>
+      <nR>{-c['nr']:.4f}</nR>
+      <zW>{-c['yv']:.4f}</zW>
+      <kP>{-c['nr']:.4f}</kP>
+      <mQ>{-c['nr']:.4f}</mQ>
+    </plugin>"""
+    # zW(상하)·kP(횡동요)·mQ(종동요) 감쇠는 3자유도 모델 밖 — 수렴용으로
+    # 같은 자릿수 값 차용 (정착 실험 전용 근사, 명시)
+
     world_sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
   <world name="ship_water">
     <physics name="default" type="dartsim">
       <max_step_size>0.005</max_step_size>
-      <real_time_factor>0</real_time_factor>
-    </physics>
+      <real_time_factor>1</real_time_factor>
+    </physics>{hydro_xml}
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-scene-broadcaster-system"
             name="gz::sim::systems::SceneBroadcaster"/>
@@ -224,6 +260,9 @@ def main(argv: list[str] | None = None) -> int:
     urdf = export_urdf(report, args.mesh, args.out)
     hydro = export_hydro_yaml(report, args.out)
     sdf = export_sdf(report, args.mesh, args.out, collision=args.collision)
+    if args.collision == "mesh":
+        print("⚠ mesh 모드는 실험적 — 부양 검증은 box(바지선 해석해) 모드가 "
+              "기준. 실선체 완전 부양은 B-3(6자유도 계수 정합) 과제.")
     print(f"내보내기 완료: {urdf}, {hydro}, {sdf}")
     return 0
 

@@ -89,16 +89,24 @@ def test_sdf_box_mode_matches_barge_analytic(report_and_dir, tmp_path):
     assert graded.find("default_density").text.strip() == "1025"
 
 
-def test_sdf_mesh_mode_initial_pose_is_predicted_draft(report_and_dir,
-                                                       tmp_path):
+def test_sdf_mesh_mode_envelope_box_buoyancy(report_and_dir, tmp_path):
+    """mesh 모드: 시각=메쉬, 부력체=외피 상자 (gz 한계 — 메쉬 부력 미지원·
+    등가 부피 상자는 전복. 실유체 정합은 B-3 계수 플러그인 과제)."""
     from src.sim_adapters.ros2_export import export_sdf
 
     report, design_dir = report_and_dir
     path = export_sdf(report, design_dir / report["mesh_file"], tmp_path,
                       collision="mesh")
     world = ET.parse(path).getroot()
+    model = ET.parse(tmp_path / "model.sdf").getroot()
+
+    d = report["dimensions"]
+    t_box = report["weights"]["total_mass"] / (1025.0 * d["loa"] * d["beam"])
     pose_z = float(world.find(".//include/pose").text.split()[2])
-    assert pose_z == pytest.approx(-report["hydrostatics"]["draft"], abs=1e-6)
+    assert pose_z == pytest.approx(-t_box, abs=1e-6)
+    # 부력 collision은 상자, 시각은 메쉬
+    assert model.find(".//collision/geometry/box") is not None
+    assert model.find(".//visual/geometry/mesh") is not None
 
 
 def test_cli_writes_both_files(report_and_dir, tmp_path):
