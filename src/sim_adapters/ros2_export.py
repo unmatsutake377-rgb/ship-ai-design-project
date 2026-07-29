@@ -193,12 +193,15 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
     for side, y in (("left", +sep / 2), ("right", -sep / 2)):
         thruster_xml += f"""
     <link name="{side}_prop">
-      <pose>{prop_x:.4f} {y:.4f} {prop_z:.4f} 0 1.5708 0</pose>
+      <pose>{prop_x:.4f} {y:.4f} {prop_z:.4f} 0 0 0</pose>
       <inertial><mass>0.05</mass>
         <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz>
           <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
       </inertial>
       <visual name="{side}_prop_visual">
+        <!-- 시각만 회전 — 링크를 돌리면 조인트 축(=추력 방향)이 수직이 됨
+             (07-29 실측: 전진 불능·표류의 원인) -->
+        <pose>0 0 0 0 1.5708 0</pose>
         <geometry><cylinder><radius>0.04</radius><length>0.02</length></cylinder></geometry>
       </visual>
     </link>
@@ -263,7 +266,7 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         <pose>0 0 {visual_pose_z:.6f} 0 0 0</pose>
         <geometry>{visual_xml}</geometry>
       </visual>
-    </link>{thruster_xml}
+    </link>{thruster_xml}<!--HYDRO-->
   </model>
 </sdf>
 """
@@ -296,6 +299,9 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
       <mQ>{-vp['m_damping']:.4f}</mQ>
       <nR>{-c['nr']:.4f}</nR>
     </plugin>"""
+    # Hydrodynamics는 **모델 플러그인** — 월드 레벨에 두면
+    # 'base_link does not exist'로 조용히 죽어 무감쇠 배가 됨 (07-29 실측)
+    model_sdf = model_sdf.replace("<!--HYDRO-->", hydro_xml)
 
     world_sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
@@ -303,7 +309,7 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
     <physics name="default" type="dartsim">
       <max_step_size>0.005</max_step_size>
       <real_time_factor>1</real_time_factor>
-    </physics>{hydro_xml}
+    </physics>
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-scene-broadcaster-system"
             name="gz::sim::systems::SceneBroadcaster"/>
