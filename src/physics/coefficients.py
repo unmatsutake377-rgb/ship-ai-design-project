@@ -26,6 +26,48 @@ from src.physics.resistance import RHO_SEAWATER, total_resistance
 XU_DOT_MASS_FRACTION = 0.05  # 전진 부가질량/질량 (세장체 개략)
 SURGE_FD_STEP = 0.05         # 저항 미분 중앙차분 스텝 (±5% U)
 
+# 수직면(상하·횡동요·종동요) 부가질량 개략 계수 — 수상선 통상 범위 (B-3a).
+# 정밀값은 스트립/패널법 영역 — PoC는 자릿수 정합 목적 (docstring 참조)
+ZW_DOT_MASS_FACTOR = 1.0   # 상하 부가질량/질량 (폭넓은 선체 ~1)
+KP_DOT_IXX_FACTOR = 0.2    # 횡동요 부가관성/Ixx
+MQ_DOT_IYY_FACTOR = 1.0    # 종동요 부가관성/Iyy (상하 분포 유사)
+VERTICAL_DAMPING_ZETA = 0.7  # 목표 감쇠비 — 강성에서 감쇠 역산용
+
+
+def vertical_plane_estimates(mass: float, ixx: float, iyy: float,
+                             awp: float, ixx_wp: float, gm: float,
+                             disp_vol: float, loa: float,
+                             rho: float = 1025.0,
+                             zeta: float = VERTICAL_DAMPING_ZETA) -> dict:
+    """수직면 3축(상하 z, 횡동요 φ, 종동요 θ) 부가질량·감쇠 개략 (B-3a).
+
+    방법: 복원 강성은 정역학 실계산값에서 —
+      C33 = ρ·g·Awp (상하), C44 = ρ·g·∇·GM (횡동요),
+      C55 = ρ·g·I_L,  I_L ≈ Awp·L²/12 (상자형 수선면 근사 — 명시)
+    감쇠는 목표 감쇠비 ζ로 역산: b = 2ζ·√((관성+부가)·C).
+    실제 조파감쇠(radiation damping)의 정밀 계산은 스트립/패널법 영역 —
+    여기서는 '정착이 물리적 시간 스케일로 일어나는' 자릿수 정합이 목적.
+    반환값 전부 크기(양수) — 부호 조립은 사용처 관례.
+    """
+    g = 9.81
+    z_added = ZW_DOT_MASS_FACTOR * mass
+    k_added = KP_DOT_IXX_FACTOR * ixx
+    m_added = MQ_DOT_IYY_FACTOR * iyy
+
+    c33 = rho * g * awp
+    c44 = rho * g * disp_vol * max(gm, 1e-6)
+    i_l = awp * loa ** 2 / 12.0
+    c55 = rho * g * i_l
+
+    return {
+        "z_added_mass": z_added,
+        "k_added_inertia": k_added,
+        "m_added_inertia": m_added,
+        "z_damping": 2.0 * zeta * math.sqrt((mass + z_added) * c33),
+        "k_damping": 2.0 * zeta * math.sqrt((ixx + k_added) * c44),
+        "m_damping": 2.0 * zeta * math.sqrt((iyy + m_added) * c55),
+    }
+
 
 # 회귀 괄호항이 음수로 떨어지면 물리 위반(음의 관성·감쇠) — 선두항의
 # 이 비율을 하한으로 클램프하고 out-of-range를 표시한다.

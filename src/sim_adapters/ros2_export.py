@@ -145,6 +145,7 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         draft_expected = mass / (1025.0 * d["loa"] * d["beam"])
         init_z = d["depth"] / 2.0 - draft_expected
         visual_xml = geom_xml
+        visual_pose_z = 0.0
         collision_z = 0.0  # 상자 중심 = 링크 원점
         cg_z = 0.0   # 상자 중심 기준
         cg_x = 0.0   # 검정 목적: 트림 없는 순수 부력 확인 — CG를 부심 위에
@@ -159,12 +160,20 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         mesh_file = Path(mesh_path).name
         geom_xml = (f"<box><size>{d['loa']:.4f} {d['beam']:.4f} "
                     f"{d['depth']:.4f}</size></box>")
-        visual_xml = f"<mesh><uri>{mesh_file}</uri></mesh>"
+        # 링크 좌표계 = 부력 상자 중심 (collision 오프셋 0 — 오프셋을 주면
+        # 부력 작용점 계산이 틀어져 피치 발산함을 실측, 07-29).
+        # 메쉬 시각만 −D/2 내려 킬을 상자 하면에 정렬.
+        visual_xml = (f"<mesh><uri>{mesh_file}</uri></mesh>")
+        visual_pose_z = -d["depth"] / 2.0
         draft_expected = mass / (1025.0 * d["loa"] * d["beam"])  # 상자 해석해
-        init_z = -draft_expected  # 킬(z=0)이 상자 흘수만큼 물밑
-        collision_z = d["depth"] / 2.0  # 부력 상자 하면을 킬(z=0)에 정렬
-        cg_z = w["kg"]
-        cg_x = w["lcg"]
+        init_z = d["depth"] / 2.0 - draft_expected  # 상자 중심 기준
+        collision_z = 0.0
+        cg_z = w["kg"] - d["depth"] / 2.0  # 킬 기준 KG → 상자 중심 기준
+        # 세로 CG 오프셋은 gz 내보내기에서 0: graded 부력의 트림 평형이
+        # 정적 예측(1.7°)의 ~16배 피치를 만드는 것을 실측 (07-29 분리 실험:
+        # lcg=0이면 1.3mm 정확도로 정착). 트림 정보는 리포트에 보존 —
+        # gz 데모는 무트림 부양으로 한정 (한계 문서화)
+        cg_x = 0.0
 
     model_sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
@@ -182,31 +191,43 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         <pose>0 0 {collision_z:.6f} 0 0 0</pose>
         <geometry>{geom_xml}</geometry>
       </collision>
-      <visual name="hull_visual"><geometry>{visual_xml}</geometry></visual>
+      <visual name="hull_visual">
+        <pose>0 0 {visual_pose_z:.6f} 0 0 0</pose>
+        <geometry>{visual_xml}</geometry>
+      </visual>
     </link>
   </model>
 </sdf>
 """
     c = report["coefficients"]
-    # gz Hydrodynamics 플러그인 (B-3 선행 적용): SNAME 부호(음수)로 조립.
-    # 역할: 부가질량 + 선형 감쇠 — 이것 없이는 진동이 영원히 안 죽어
-    # 정착 자체가 불가 (2026-07-29 실측: 무감쇠 표류 폭주)
+    # 수직면 3축 계수 (B-3a): 정역학 실계산값 기반 실추정 —
+    # 부분 계수 차용은 비물리 모멘트로 피치 발산했음 (07-29 실측)
+    from src.physics.coefficients import vertical_plane_estimates
+
+    vp = vertical_plane_estimates(
+        mass=mass, ixx=ixx, iyy=iyy,
+        awp=h["waterplane_area"], ixx_wp=h["waterplane_ixx"],
+        gm=h["gm"], disp_vol=h["displacement_volume"], loa=d["loa"],
+    )
+    # gz Hydrodynamics 플러그인: SNAME 부호(음수)로 6자유도 조립.
+    # 감쇠 없이는 정착 불가 (무감쇠 표류 폭주 실측)
     hydro_xml = f"""
     <plugin filename="gz-sim-hydrodynamics-system"
             name="gz::sim::systems::Hydrodynamics">
       <link_name>base_link</link_name>
       <xDotU>{-c['xu_dot']:.4f}</xDotU>
       <yDotV>{-c['yv_dot']:.4f}</yDotV>
+      <zDotW>{-vp['z_added_mass']:.4f}</zDotW>
+      <kDotP>{-vp['k_added_inertia']:.4f}</kDotP>
+      <mDotQ>{-vp['m_added_inertia']:.4f}</mDotQ>
       <nDotR>{-c['nr_dot']:.4f}</nDotR>
       <xU>{-c['xu']:.4f}</xU>
       <yV>{-c['yv']:.4f}</yV>
+      <zW>{-vp['z_damping']:.4f}</zW>
+      <kP>{-vp['k_damping']:.4f}</kP>
+      <mQ>{-vp['m_damping']:.4f}</mQ>
       <nR>{-c['nr']:.4f}</nR>
-      <zW>{-c['yv']:.4f}</zW>
-      <kP>{-c['nr']:.4f}</kP>
-      <mQ>{-c['nr']:.4f}</mQ>
     </plugin>"""
-    # zW(상하)·kP(횡동요)·mQ(종동요) 감쇠는 3자유도 모델 밖 — 수렴용으로
-    # 같은 자릿수 값 차용 (정착 실험 전용 근사, 명시)
 
     world_sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">

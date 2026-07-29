@@ -103,10 +103,18 @@ def test_sdf_mesh_mode_envelope_box_buoyancy(report_and_dir, tmp_path):
     d = report["dimensions"]
     t_box = report["weights"]["total_mass"] / (1025.0 * d["loa"] * d["beam"])
     pose_z = float(world.find(".//include/pose").text.split()[2])
-    assert pose_z == pytest.approx(-t_box, abs=1e-6)
-    # 부력 collision은 상자, 시각은 메쉬
+    # 링크 좌표계 = 상자 중심 (collision 오프셋 금지 — 피치 발산 실측)
+    assert pose_z == pytest.approx(d["depth"] / 2 - t_box, abs=1e-6)
+    # 부력 collision은 원점 상자, 시각은 −D/2 내린 메쉬
     assert model.find(".//collision/geometry/box") is not None
     assert model.find(".//visual/geometry/mesh") is not None
+    cg_pose = model.find(".//inertial/pose").text.split()
+    assert float(cg_pose[0]) == 0.0  # 세로 CG 오프셋 0 (gz 트림 한계 회피)
+    # 6자유도 유체 플러그인 존재
+    hydro = [p for p in world.iter("plugin")
+             if "Hydrodynamics" in p.get("name", "")]
+    assert len(hydro) == 1
+    assert hydro[0].find("zDotW") is not None
 
 
 def test_cli_writes_both_files(report_and_dir, tmp_path):

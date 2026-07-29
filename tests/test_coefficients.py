@@ -90,3 +90,21 @@ def test_extrapolation_warning_always_on():
 def test_straight_line_stability_reported():
     coeffs = _full_set()
     assert isinstance(coeffs.straight_line_stable, bool)
+
+
+def test_vertical_plane_estimates_physical():
+    """B-3a: 수직면 계수 — 양수, 감쇠비 역산 공식 고정."""
+    from src.physics.coefficients import (
+        VERTICAL_DAMPING_ZETA,
+        vertical_plane_estimates,
+    )
+
+    v = vertical_plane_estimates(mass=148.5, ixx=17.7, iyy=36.0,
+                                 awp=1.35, ixx_wp=0.096, gm=0.29,
+                                 disp_vol=0.145, loa=1.97)
+    for key, val in v.items():
+        assert val > 0, key
+    # 상하축 감쇠 공식 고정: b33 = 2ζ√((m+A33)·ρgAwp)
+    c33 = 1025.0 * 9.81 * 1.35
+    expected = 2 * VERTICAL_DAMPING_ZETA * math.sqrt((148.5 + 148.5) * c33)
+    assert v["z_damping"] == pytest.approx(expected, rel=1e-9)
