@@ -23,6 +23,23 @@ KXX_OVER_B = 0.35  # 횡동요 회전반경/폭 (통상값)
 KYY_OVER_L = 0.25  # 종동요 회전반경/길이 (통상값)
 
 
+def _inertia_triplet(report: dict) -> tuple[float, float, float]:
+    """내보내기용 관성 3축 (ixx, iyy, izz) — 삼각 부등식 보장.
+
+    weights.izz(성분 점질량 모델)는 중앙 탑재 하중의 기여를 0으로 보는
+    **하계** — iyy(전체 질량 × 0.25L 회전반경)보다 작으면 물리 모순
+    (Gazebo가 invalid inertia로 거부, 2026-07-29 실측). 관례상
+    kzz ≈ kyy(세장 선체)이므로 izz 하한을 iyy로 둔다.
+    """
+    d = report["dimensions"]
+    w = report["weights"]
+    mass = w["total_mass"]
+    ixx = mass * (KXX_OVER_B * d["beam"]) ** 2
+    iyy = mass * (KYY_OVER_L * d["loa"]) ** 2
+    izz = max(w["izz"], iyy)
+    return ixx, iyy, izz
+
+
 def export_urdf(report: dict, mesh_path: str | Path,
                 out_dir: str | Path) -> Path:
     """report.json + STL → hull.urdf."""
@@ -32,9 +49,7 @@ def export_urdf(report: dict, mesh_path: str | Path,
     d = report["dimensions"]
     w = report["weights"]
     mass = w["total_mass"]
-    ixx = mass * (KXX_OVER_B * d["beam"]) ** 2
-    iyy = mass * (KYY_OVER_L * d["loa"]) ** 2
-    izz = w["izz"]
+    ixx, iyy, izz = _inertia_triplet(report)
 
     robot = ET.Element("robot", name="generated_hull")
     link = ET.SubElement(robot, "link", name="base_link")
@@ -121,8 +136,7 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
     w = report["weights"]
     h = report["hydrostatics"]
     mass = w["total_mass"]
-    ixx = mass * (KXX_OVER_B * d["beam"]) ** 2
-    iyy = mass * (KYY_OVER_L * d["loa"]) ** 2
+    ixx, iyy, izz = _inertia_triplet(report)
 
     if collision == "box":
         geom_xml = (f"<box><size>{d['loa']:.4f} {d['beam']:.4f} "
@@ -130,23 +144,25 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         # 상자 중심 = 형심 중앙 → 초기 z: 상자 하면이 해석해 흘수만큼 잠기게
         draft_expected = mass / (1025.0 * d["loa"] * d["beam"])
         init_z = d["depth"] / 2.0 - draft_expected
-        cg_z = 0.0  # 상자 중심 기준
+        cg_z = 0.0   # 상자 중심 기준
+        cg_x = 0.0   # 검정 목적: 트림 없는 순수 부력 확인 — CG를 부심 위에
     else:
         mesh_file = Path(mesh_path).name
         geom_xml = f"<mesh><uri>{mesh_file}</uri></mesh>"
         draft_expected = h["draft"]
         init_z = -draft_expected  # 메쉬 z=0이 킬 → 킬이 흘수만큼 물밑
         cg_z = w["kg"]
+        cg_x = w["lcg"]
 
     model_sdf = f"""<?xml version="1.0"?>
 <sdf version="1.9">
   <model name="generated_hull">
     <link name="base_link">
       <inertial>
-        <pose>{w['lcg']:.6f} 0 {cg_z:.6f} 0 0 0</pose>
+        <pose>{cg_x:.6f} 0 {cg_z:.6f} 0 0 0</pose>
         <mass>{mass:.6f}</mass>
         <inertia>
-          <ixx>{ixx:.6f}</ixx><iyy>{iyy:.6f}</iyy><izz>{w['izz']:.6f}</izz>
+          <ixx>{ixx:.6f}</ixx><iyy>{iyy:.6f}</iyy><izz>{izz:.6f}</izz>
           <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
         </inertia>
       </inertial>
@@ -167,7 +183,15 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
     <plugin filename="gz-sim-scene-broadcaster-system"
             name="gz::sim::systems::SceneBroadcaster"/>
     <plugin filename="gz-sim-buoyancy-system" name="gz::sim::systems::Buoyancy">
-      <uniform_fluid_density>1025</uniform_fluid_density>
+      <!-- 수상선은 graded 필수: uniform은 잠수함 가정(상시 전부피 부력)이라
+           수면 개념이 없어 모델이 무한 상승함 (2026-07-29 실측: z=45,411km) -->
+      <graded_buoyancy>
+        <default_density>1025</default_density>
+        <density_change>
+          <above_depth>0</above_depth>
+          <density>1</density>
+        </density_change>
+      </graded_buoyancy>
       <enable>generated_hull</enable>
     </plugin>
     <include>

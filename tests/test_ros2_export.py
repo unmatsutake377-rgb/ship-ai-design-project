@@ -27,7 +27,11 @@ def test_urdf_valid_xml_and_values(report_and_dir, tmp_path):
     mass = float(inertial.find("mass").get("value"))
     assert mass == pytest.approx(report["weights"]["total_mass"], rel=1e-6)
     izz = float(inertial.find("inertia").get("izz"))
-    assert izz == pytest.approx(report["weights"]["izz"], rel=1e-6)
+    # izz는 성분 모델 하계와 iyy(0.25L 회전반경) 중 큰 값 (삼각 부등식 보장)
+    assert izz >= report["weights"]["izz"] - 1e-9
+    iyy_val = float(inertial.find("inertia").get("iyy"))
+    ixx_val = float(inertial.find("inertia").get("ixx"))
+    assert ixx_val + izz >= iyy_val  # Gazebo가 거부하던 위반 재발 방지
     ixx = float(inertial.find("inertia").get("ixx"))
     iyy = float(inertial.find("inertia").get("iyy"))
     # 횡동요(ixx) < 종동요(iyy): kxx=0.35B < kyy=0.25L은 B/L<0.714에서 항상
@@ -75,11 +79,14 @@ def test_sdf_box_mode_matches_barge_analytic(report_and_dir, tmp_path):
     pose_z = float(world.find(".//include/pose").text.split()[2])
     assert pose_z == pytest.approx(d["depth"] / 2 - draft_analytic, abs=1e-6)
 
-    # 부력 플러그인 필수 요소
+    # 부력 플러그인: 수상선용 graded 필수 (uniform=잠수함 가정 — 무한 상승
+    # 사고 실측 후 교체, 2026-07-29). Gazebo 실검증: 정착 오차 0.1mm.
     buoy = [p for p in world.iter("plugin")
             if "Buoyancy" in p.get("name", "")]
     assert len(buoy) == 1
-    assert buoy[0].find("uniform_fluid_density").text.strip() == "1025"
+    graded = buoy[0].find("graded_buoyancy")
+    assert graded is not None
+    assert graded.find("default_density").text.strip() == "1025"
 
 
 def test_sdf_mesh_mode_initial_pose_is_predicted_draft(report_and_dir,
