@@ -89,15 +89,24 @@ def main():
         u_cmd = cfg["u_desired"] * frac
 
         moment = cfg["kp_psi"] * ssa(psi_d - psi) - cfg["kd_psi"] * r
-        # 부호 반전: gz Thruster의 차동→요 모멘트 방향이 우리 규약과 반대
-        # (07-29 실측: 반시계 명령에 시계 회전 — 플러그인 방향 규약)
-        diff = -max(-cfg["thrust_max"],
-                    min(cfg["thrust_max"],
-                        moment / cfg["thruster_separation"]))
+        # gz 규약 (07-30 스텝 실험 실측): 왼쪽 강함 = 반시계(+모멘트)
+        # → +모멘트 요구 시 tl > tr
+        diff = max(-cfg["thrust_max"],
+                   min(cfg["thrust_max"],
+                       moment / cfg["thruster_separation"]))
         headroom = cfg["thrust_max"] - abs(diff)
-        common = max(-headroom, min(headroom, cfg["kp_u"] * (u_cmd - u)))
+        common = max(0.0, min(headroom, cfg["kp_u"] * (u_cmd - u)))
 
-        tl, tr = common - diff, common + diff
+        tl, tr = common + diff, common - diff
+        # **후진 금지** (07-30 실측: 음수 추력 → 플러그인 침묵 고장 —
+        # 요 동결·감쇠 무시). 전진 전용 배분: 음수면 양쪽 동시 상향해
+        # 차이(모멘트) 보존, 상한 클램프
+        if min(tl, tr) < 0:
+            shift = -min(tl, tr)
+            tl += shift
+            tr += shift
+        tl = min(tl, cfg["thrust_max"])
+        tr = min(tr, cfg["thrust_max"])
         pub_thrust("left", tl)
         pub_thrust("right", tr)
         log.write(f"{x:.3f},{y:.3f},{psi:.3f},{u:.3f},"
