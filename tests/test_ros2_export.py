@@ -110,11 +110,16 @@ def test_sdf_mesh_mode_envelope_box_buoyancy(report_and_dir, tmp_path):
     assert model.find(".//visual/geometry/mesh") is not None
     cg_pose = model.find(".//inertial/pose").text.split()
     assert float(cg_pose[0]) == 0.0  # 세로 CG 오프셋 0 (gz 트림 한계 회피)
-    # 6자유도 유체 플러그인 존재
-    hydro = [p for p in world.iter("plugin")
-             if "Hydrodynamics" in p.get("name", "")]
-    assert len(hydro) == 1
-    assert hydro[0].find("zDotW") is not None
+    # 유체 플러그인은 **모델 안** (월드 레벨 = 조용히 무효, 07-29 실측)
+    hydro_w = [p for p in world.iter("plugin")
+               if "Hydrodynamics" in p.get("name", "")]
+    assert len(hydro_w) == 0
+    hydro_m = [p for p in model.iter("plugin")
+               if "Hydrodynamics" in p.get("name", "")]
+    assert len(hydro_m) == 1
+    # 부가질량 0 (dartsim 수치 폭발 회피 — 감쇠만), 감쇠는 음수 조립
+    assert hydro_m[0].find("zDotW").text.strip() == "0"
+    assert float(hydro_m[0].find("zW").text) < 0
 
 
 def test_cli_writes_both_files(report_and_dir, tmp_path):

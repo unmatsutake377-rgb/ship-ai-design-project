@@ -280,18 +280,20 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         awp=h["waterplane_area"], ixx_wp=h["waterplane_ixx"],
         gm=h["gm"], disp_vol=h["displacement_volume"], loa=d["loa"],
     )
-    # gz Hydrodynamics 플러그인: SNAME 부호(음수)로 6자유도 조립.
-    # 감쇠 없이는 정착 불가 (무감쇠 표류 폭주 실측)
+    # gz Hydrodynamics 플러그인: 감쇠만 적용 (SNAME 부호 음수).
+    # 부가질량은 dartsim에서 수치 폭발 실측 (07-29: 위치 1e125 m —
+    # 우리 스케일의 부가질량 비율에서 발산) → 0으로 두고 감쇠만.
+    # 경로 추종에는 감쇠가 본질 — 부가질량 정합은 후속 과제 (한계 명시).
     hydro_xml = f"""
     <plugin filename="gz-sim-hydrodynamics-system"
             name="gz::sim::systems::Hydrodynamics">
       <link_name>base_link</link_name>
-      <xDotU>{-c['xu_dot']:.4f}</xDotU>
-      <yDotV>{-c['yv_dot']:.4f}</yDotV>
-      <zDotW>{-vp['z_added_mass']:.4f}</zDotW>
-      <kDotP>{-vp['k_added_inertia']:.4f}</kDotP>
-      <mDotQ>{-vp['m_added_inertia']:.4f}</mDotQ>
-      <nDotR>{-c['nr_dot']:.4f}</nDotR>
+      <xDotU>0</xDotU>
+      <yDotV>0</yDotV>
+      <zDotW>0</zDotW>
+      <kDotP>0</kDotP>
+      <mDotQ>0</mDotQ>
+      <nDotR>0</nDotR>
       <xU>{-c['xu']:.4f}</xU>
       <yV>{-c['yv']:.4f}</yV>
       <zW>{-vp['z_damping']:.4f}</zW>
