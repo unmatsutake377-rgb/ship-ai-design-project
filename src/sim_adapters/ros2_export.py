@@ -19,6 +19,13 @@ from pathlib import Path
 
 import yaml
 
+from src.sim_adapters.python_sim import (
+    ACCEPT_RADIUS_OVER_L,
+    SLOWDOWN_MIN_FRACTION,
+    SLOWDOWN_RADIUS_OVER_L,
+    THRUSTER_SEP_OVER_B,
+)
+
 KXX_OVER_B = 0.35  # 횡동요 회전반경/폭 (통상값)
 KYY_OVER_L = 0.25  # 종동요 회전반경/길이 (통상값)
 
@@ -120,7 +127,8 @@ def export_hydro_yaml(report: dict, out_dir: str | Path) -> Path:
 
 def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
                collision: str = "mesh",
-               waypoints: list[tuple[float, float]] | None = None) -> Path:
+               waypoints: list[tuple[float, float]] | None = None,
+               follower: bool = False) -> Path:
     """Gazebo용 model.sdf + 부력 월드 world.sdf (Phase B-2b).
 
     collision:
@@ -176,11 +184,47 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         # gz 데모는 무트림 부양으로 한정 (한계 문서화)
         cg_x = 0.0
 
-    # 웨이포인트 추종 (B-3b): gz 내장 TrajectoryFollower — 힘/토크 상수로
-    # 웨이포인트를 순회하는 단순 추종기 (LOS·PD 정밀 제어는 ROS2 이식 과제).
-    # 힘·토크 스케일은 우리 설계값에서: 추력 여유의 절반, 최대 조타 모멘트
+    # 추력기 2발 + 오도메트리 (B-3c): 우리 제어기(LOS+고유값 게인)가
+    # gz 토픽으로 조종. B-3b 실측 결론(내장 추종기 구조적 미달)의 해법.
+    sep = THRUSTER_SEP_OVER_B * d["beam"]
+    prop_x = -0.45 * d["loa"]
+    prop_z = -d["depth"] / 2.0 + 0.02  # 상자 중심 프레임 — 킬 근처 (침수)
+    thruster_xml = ""
+    for side, y in (("left", +sep / 2), ("right", -sep / 2)):
+        thruster_xml += f"""
+    <link name="{side}_prop">
+      <pose>{prop_x:.4f} {y:.4f} {prop_z:.4f} 0 1.5708 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="{side}_prop_visual">
+        <geometry><cylinder><radius>0.04</radius><length>0.02</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="{side}_prop_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>{side}_prop</child>
+      <axis><xyz>1 0 0</xyz></axis>
+    </joint>
+    <plugin filename="gz-sim-thruster-system" name="gz::sim::systems::Thruster">
+      <namespace>generated_hull</namespace>
+      <joint_name>{side}_prop_joint</joint_name>
+      <thrust_coefficient>0.004</thrust_coefficient>
+      <fluid_density>1025</fluid_density>
+      <propeller_diameter>0.08</propeller_diameter>
+    </plugin>"""
+    thruster_xml += """
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_publish_frequency>10</odom_publish_frequency>
+    </plugin>"""
+
+    # 웨이포인트 추종 (B-3b, 실험용 — 기본 꺼짐): gz 내장 TrajectoryFollower.
+    # 구조적 미달 실측 — 정밀 제어는 B-3c(waypoint_controller.py).
+    # 켜면 우리 제어기와 동시에 배를 잡아당기므로 병용 금지.
     follower_xml = ""
-    if waypoints:
+    if waypoints and follower:
         p = report["propulsion"]
         force = p["motor"]["thrust_max_n"]  # 1발 상당 — 순항 추력 여유권
         torque = (p["motor"]["thrust_max_n"] * 0.8 * report["dimensions"]["beam"]
@@ -219,7 +263,7 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         <pose>0 0 {visual_pose_z:.6f} 0 0 0</pose>
         <geometry>{visual_xml}</geometry>
       </visual>
-    </link>
+    </link>{thruster_xml}
   </model>
 </sdf>
 """
@@ -288,6 +332,45 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
     return path
 
 
+def export_control_yaml(report: dict, out_dir: str | Path,
+                        waypoints: list[tuple[float, float]] | None = None
+                        ) -> Path:
+    """제어기 파라미터 내보내기 (B-3c) — python_sim과 동일 법칙.
+
+    게인은 design_gains(고유값 판별 사다리)에서 — 컨테이너 제어기가
+    이 YAML만 읽으면 우리 시뮬과 같은 제어를 재현.
+    """
+    from src.sim_adapters.python_sim import design_gains, vessel_from_report
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    vessel = vessel_from_report(report)
+    u_d = report["goal"]["target_speed_ms"]
+    kp_psi, kd_psi, lookahead, info = design_gains(vessel, u_d)
+
+    data = {
+        "u_desired": u_d,
+        "kp_psi": float(kp_psi),
+        "kd_psi": float(kd_psi),
+        "kp_u": float(8.0 * vessel.m_x / 10.0),
+        "lookahead": float(lookahead),
+        "accept_radius": float(ACCEPT_RADIUS_OVER_L * vessel.loa),
+        "slowdown_radius": float(SLOWDOWN_RADIUS_OVER_L * vessel.loa),
+        "slowdown_min_fraction": float(SLOWDOWN_MIN_FRACTION),
+        "thrust_max": float(vessel.thrust_max),
+        "thruster_separation": float(vessel.thruster_sep),
+        "design_info": {k: (bool(v) if isinstance(v, bool) else float(v))
+                        if not isinstance(v, str) else v
+                        for k, v in info.items()},
+        "waypoints": [[float(x), float(y)] for x, y in (waypoints or [])],
+    }
+    path = out / "control.yaml"
+    with open(path, "w") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     import json
@@ -312,6 +395,8 @@ def main(argv: list[str] | None = None) -> int:
     hydro = export_hydro_yaml(report, args.out)
     sdf = export_sdf(report, args.mesh, args.out, collision=args.collision,
                      waypoints=waypoints)
+    if args.course_square:
+        export_control_yaml(report, args.out, waypoints=waypoints)
     if args.collision == "mesh":
         print("⚠ mesh 모드는 실험적 — 부양 검증은 box(바지선 해석해) 모드가 "
               "기준. 실선체 완전 부양은 B-3(6자유도 계수 정합) 과제.")
