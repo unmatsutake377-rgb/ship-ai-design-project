@@ -1,4 +1,5 @@
 import json
+import math
 import subprocess
 import sys
 
@@ -57,13 +58,22 @@ def test_pipeline_semi_displacement_designs(tmp_path):
     assert report["passed"] in (True, False)  # 필터는 정상 판정
 
 
-def test_pipeline_rejects_planing(tmp_path):
-    """활주 영역은 여전히 명시적 중단 (Savitsky 추후)."""
-    from src.core.regime import UnsupportedRegimeError
+def test_pipeline_planing_designs(tmp_path):
+    """Phase C-2: 활주 요청이 이제 설계됨 — Savitsky 평형 경로.
 
-    goal = GoalSpec(target_speed_ms=8.0, payload_kg=100.0, purpose="survey")
-    with pytest.raises(UnsupportedRegimeError):
-        run_pipeline(goal, tmp_path)
+    저항 성분: total = 유도(Δ·tanτ = rw) + 바닥마찰/cosτ (rf=Df).
+    τ를 리포트에 안 실으므로 부등식으로 검사: rf+rw ≤ total ≤ rf/cos15°+rw."""
+    goal = GoalSpec(target_speed_ms=6.0, payload_kg=20.0, purpose="patrol",
+                    endurance_h=1.0)
+    report = run_pipeline(goal, tmp_path, loa=2.8)
+    assert report["regime"] == "PLANING"
+    assert report["hull_family"] == "planing_deadrise"
+    r = report["resistance"]
+    assert r["rf"] > 0 and r["rw"] > 0
+    assert r["rf"] + r["rw"] <= r["total"] * 1.001
+    assert r["total"] <= r["rf"] / math.cos(math.radians(15.0)) + r["rw"] + 1e-6
+    # 활주용 GM/B 완화 밴드(0.04~1.50)로 정역학 필터도 통과해야 함
+    assert report["passed"] is True
 
 
 def test_report_contains_speed_limit(tmp_path):
@@ -73,17 +83,24 @@ def test_report_contains_speed_limit(tmp_path):
     assert vmax > report["goal"]["target_speed_ms"]  # 통과했으니 여유 있어야
 
 
-def test_rejection_message_has_alternatives(tmp_path):
+def test_formerly_rejected_speed_now_reaches_physics(tmp_path):
+    """C-2 이전 '체계 미지원' 거절 케이스 — 이제 물리까지 간다.
+
+    6 m/s·100 kg는 모터 카탈로그 한계로 실패하지만, 사유가 '체계
+    미지원'이 아니라 물리·카탈로그(추력/평형)여야 한다. exit 3은
+    이제 '설계 불가' 일반 코드."""
     result = subprocess.run(
         [sys.executable, "-m", "src.pipeline",
          "--speed", "6.0", "--payload", "100", "--purpose", "survey",
          "--out", str(tmp_path)],
         capture_output=True, text=True,
     )
-    assert result.returncode == 3
     err = result.stdout + result.stderr
-    assert "한계속도" in err   # 이 크기가 낼 수 있는 속도
-    assert "최소" in err       # 이 속도에 필요한 길이
+    assert "추후 지원" not in err and "미지원" not in err
+    if result.returncode == 3:  # 정직한 거절 — 사유는 물리/카탈로그
+        assert ("모터" in err or "추력" in err or "평형" in err)
+    else:
+        assert result.returncode in (0, 2)
 
 
 def test_cli_speed_optional_uses_preset(tmp_path):
@@ -109,12 +126,3 @@ def test_cli_smoke(tmp_path):
     assert "GM" in result.stdout
 
 
-def test_cli_unsupported_regime_exit_code(tmp_path):
-    result = subprocess.run(
-        [sys.executable, "-m", "src.pipeline",
-         "--speed", "6.0", "--payload", "100", "--purpose", "survey",
-         "--out", str(tmp_path)],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 3
-    assert "배수량형" in (result.stdout + result.stderr)

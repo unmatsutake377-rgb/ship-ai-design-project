@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import trimesh
 
@@ -194,6 +196,43 @@ def generate_transom_hull_mesh(dims: MainDimensions, n_stations: int = 61,
     """트랜섬 선미 watertight 메쉬 (반배수량용)."""
     n, m = solve_transom_exponents(dims.cb)
     return _build_mesh(lambda x, z: _transom_half_breadth(x, z, dims, n, m),
+                       dims, n_stations, n_below, n_above, cap_stern=True)
+
+
+# ---------- 활주 계열 (Phase C-2) ----------
+# V바닥 데드라이즈 프리즘 + 하드 차인 + 넓은 트랜섬 — Savitsky 전제 형상.
+# 주의: 이 계열은 Cb를 목표로 역산하지 않음 — 데드라이즈·차인 기하가
+# 단면을 결정 (dims.cb는 참고값). 부양·필터는 메쉬 기반이라 무관.
+
+PLANING_DEADRISE_DEG = 15.0   # 데드라이즈 각 (소형 활주정 통상 10~20°)
+PLANING_TRANSOM_RATIO = 0.90  # 트랜섬 폭비 (활주정은 선미가 거의 전폭)
+PLANING_BOW_FRACTION = 0.35   # 선수 테이퍼 구간 / 전장
+
+
+def _planing_half_breadth(x: float, z: float, dims: MainDimensions) -> float:
+    # 단면: V바닥 (y = z/tanβ) → 차인 높이에서 수직 현측
+    chine_z = (dims.beam / 2.0) * math.tan(
+        math.radians(PLANING_DEADRISE_DEG))
+    section = min(z / math.tan(math.radians(PLANING_DEADRISE_DEG)),
+                  dims.beam / 2.0) if z > 0 else 0.0
+    if z > chine_z:
+        section = dims.beam / 2.0
+    # 세로: 선수 테이퍼 + 전폭 선미 (트랜섬)
+    x_b = dims.loa / 2 - PLANING_BOW_FRACTION * dims.loa
+    if x >= x_b:
+        xi = (x - x_b) / (dims.loa / 2 - x_b)
+        longitudinal = max(0.0, 1.0 - xi ** 2.5)
+    else:
+        v = (x_b - x) / (x_b + dims.loa / 2)
+        longitudinal = 1.0 - (1.0 - PLANING_TRANSOM_RATIO) * v ** 2
+    return section * longitudinal
+
+
+def generate_planing_hull_mesh(dims: MainDimensions, n_stations: int = 61,
+                               n_below: int = 15, n_above: int = 9
+                               ) -> trimesh.Trimesh:
+    """활주 선체 watertight 메쉬 (Savitsky 전제 — 프리즘 데드라이즈)."""
+    return _build_mesh(lambda x, z: _planing_half_breadth(x, z, dims),
                        dims, n_stations, n_below, n_above, cap_stern=True)
 
 
