@@ -31,14 +31,14 @@ python -m src.pipeline --speed 1.5 --payload 100 --purpose survey --out outputs/
 | 단계 | 모듈 | 하는 일 (일상어) |
 |---|---|---|
 | ① 치수 추정 | `src/ai/dimension_estimator.py` | "조사용이면 보통 길이:폭 = 3:1" 같은 실선 비율 통계로 L, B, 깊이 결정 |
-| ② 속도 체계 판정 | `src/core/regime.py` | 이 속도면 물을 "밀고 가는" 배인지 "타고 달리는" 보트인지 판별. 현재는 밀고 가는 배(저속)만 지원 — 아니면 정직하게 "미지원" 하고 멈춤 |
-| ③ 3D 선형 생성 | `src/ai/hull_generator.py` | 수학 공식(Wigley 곡면)으로 3D 배 표면 생성. 구멍 없는(watertight) 메쉬 |
+| ② 속도 체계 판정 | `src/core/regime.py` | 이 속도면 물을 "밀고 가는" 배(배수량형), 중간(반배수량형), "타고 달리는" 보트(활주형)인지 판별. 활주형만 아직 미지원 — 정직하게 거절 |
+| ③ 3D 선형 생성 | `src/ai/hull_generator.py` | 수학 공식으로 3D 배 표면 생성 (저속=Wigley, 고속=트랜섬 선미 계열). 구멍 없는(watertight) 메쉬 |
 | ④ 무게 추정 | `src/physics/weights.py` | 선체 무게 + 배터리·모터 + 짐 = 전체 무게, 무게중심 높이(KG) 계산 |
 | ⑤ 뜨는지 검증 | `src/physics/hydrostatics.py` | 그 무게로 물에 넣으면 어디까지 잠기나(흘수), 기울여도 되돌아오나(GM) 판정 |
 | ⑥ 저항 계산 | `src/physics/resistance.py` | 이 속도로 가려면 몇 N으로 밀어야 하나 = 모터 크기의 근거 |
 | ⑦ 점수 매기기 | `src/hitl/scoring.py` | 사람(당신)이 결과에 1~5점 — 나중에 AI 재학습 때 반영 |
 
-**품질 보증:** 테스트 56개. 전부 "정답을 손으로 계산할 수 있는 문제"로 검증
+**품질 보증:** 테스트 164개. 전부 "정답을 손으로 계산할 수 있는 문제"로 검증
 (예: 직육면체 바지선은 공식이 있음 → 코드 답과 대조). 저항 모듈은 국제 표준 시험 선형(Wigley)의
 문헌값과 대조 — 오차 대역 안.
 
@@ -80,7 +80,15 @@ python -m pytest
 python3 -c "from src.hitl.scoring import record_score; record_score('demo_001', 4, 'data/user_scores.csv')"
 ```
 
-속도를 3.0으로 올려보면 "반배수량형 미지원" 하고 정직하게 거절하는 것도 볼 수 있음.
+속도를 3.0으로 올리면 반배수량 트랜섬 선형으로 자동 전환됨. 8.0이면 "활주형 미지원" 거절.
+
+```bash
+# 고속 순찰정 설계 (반배수량, Phase C-1)
+python -m src.pipeline --speed 3.0 --payload 100 --purpose patrol --loa 4.3
+
+# 파레토 최적화 (후보 여러 척 → 트레이드오프 지도)
+python -m src.optimize --speed 1.2 --payload 100
+```
 
 ## 4. 앞으로 할 일 (로드맵)
 
@@ -97,20 +105,19 @@ python3 -c "from src.hitl.scoring import record_score; record_score('demo_001', 
 1. **점수 매기기** — 배 만들 때마다 STL 열어보고 1~5점 기록 (위 명령어). M5b에서 이 데이터가 "인간 취향" 학습 재료가 됨. 지금부터 쌓아야 그때 쓸 게 있음.
 2. **결과 구경** — report.json에서 GM, 저항 숫자 눈에 익히기. "속도 올리면 조파저항이 확 뛴다" 같은 감이 생기면 그게 조선공학 학습.
 
-**결정해줘야 할 것 (급하지 않음, 시점 명시):**
-3. **ROS2 환경** — M4b 끝난 뒤 결정. 선택지: 이 Mac에 Docker(무료, 성능 중간) vs 별도 Linux PC/클라우드(성능 좋음, 비용). 모르겠으면 Docker로 시작 추천.
-4. **Ship-D 다운로드 승인** — M5a 때 MIT 공개 데이터셋 다운로드 필요 (수백 MB). 그때 물어볼 것.
+**완료된 결정:** ROS2 환경(Mac Docker→WSL2 확장 경로), Ship-D 다운로드 — 전부 확정됨.
 
 **궁금할 때:**
-5. 코드·용어 아무거나 질문 — 설명이 이 프로젝트 목적의 절반.
+3. 코드·용어 아무거나 질문 — 설명이 이 프로젝트 목적의 절반. (기록: docs/feedback-log.md)
 
 ## 6. 저장소 지도
 
 ```
-docs/superpowers/specs/   설계 문서 (v2가 현재 기준 — "왜 이렇게 만들었나" 전부 여기)
-docs/superpowers/plans/   구현 계획서 (코드 전문 포함 — 각 단계의 상세 레시피)
-src/                      실제 코드 (위 표의 모듈들)
-tests/                    검증 테스트 56개
+docs/INDEX.md             문서 지도 (여기부터)
+docs/PROGRESS.md          현황판 · docs/worklog/ 일지 · docs/feedback-log.md 피드백 기록지
+docs/superpowers/         설계 스펙(v3) + 구현 계획서들
+src/                      실제 코드 · tests/ 검증 164개
+data/                     실선 USV·모터 카탈로그·ELO 이력 (Ship-D는 로컬 전용)
+ros2_ws/docker/           시뮬 이미지·제어 노드·실험 스크립트 (Phase B)
 outputs/                  실행 결과물 (git 미포함)
-ros2_ws/                  Phase B 자리 (지금은 비어 있음)
 ```

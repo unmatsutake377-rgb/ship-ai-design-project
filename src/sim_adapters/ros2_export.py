@@ -357,6 +357,14 @@ def export_control_yaml(report: dict, out_dir: str | Path,
     u_d = report["goal"]["target_speed_ms"]
     kp_psi, kd_psi, lookahead, info = design_gains(vessel, u_d)
 
+    # gz 플랜트 보정 (07-30 실측): 파이썬 모델 기준 게인은 gz에서 과공격
+    # (모델 불일치 — 부가질량 0·제어 5Hz 지연) → 지그재그 σ 1.5m.
+    # 완화 배율 적용 후 σ 0.22m (7배 개선), 완주 유지·가속.
+    GZ_KP_SCALE, GZ_KD_SCALE, GZ_LOOKAHEAD_SCALE = 0.35, 0.5, 1.5
+    kp_psi *= GZ_KP_SCALE
+    kd_psi *= GZ_KD_SCALE
+    lookahead *= GZ_LOOKAHEAD_SCALE
+
     data = {
         "u_desired": u_d,
         "kp_psi": float(kp_psi),
