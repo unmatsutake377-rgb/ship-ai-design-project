@@ -46,6 +46,7 @@ from src.physics.propulsion import (
     select_motors,
 )
 from src.physics.resistance import total_resistance, total_resistance_semi
+from src.physics.savitsky import PlaningEquilibriumError
 
 MAX_SPIRAL_ITER = 12   # 설계 나선 최대 반복
 SPIRAL_TOL = 1e-3      # 전체 중량 상대 변화 수렴 기준
@@ -56,15 +57,17 @@ class SpiralNotConvergedError(RuntimeError):
 from src.physics.weights import estimate_weights
 
 
-def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None):
+def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
+                  criteria=None):
     """설계 나선: 중량 → 흘수 → 저항 → 모터·배터리 → 중량 … 수렴까지.
 
     추진계 중량을 고정비율 개략에서 시작해 실측(모터+배터리)으로 수렴.
     반환: (weights, hydro, resist, motors, batt_kg, iteration).
     run_pipeline·최적화기·Ship-D 선별기가 공유하는 평가 코어.
 
-    resistance_fn(mesh, draft, speed) 주입 시 그 경로 사용 (예: 메쉬형
-    Michell — Ship-D 임의 형상). 기본은 Wigley 해석 경로.
+    resistance_fn(mesh, draft, speed, weights) 주입 시 그 경로 사용
+    (예: 메쉬형 Michell — Ship-D 임의 형상, Savitsky — 활주).
+    기본은 Wigley 해석 경로. criteria로 체계별 안정성 밴드 주입 가능.
     """
     n_exp, m_exp = solve_exponents(dims.cb) if resistance_fn is None \
         else (None, None)
@@ -75,13 +78,16 @@ def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None):
                                    goal.payload_kg, propulsion_mass,
                                    loa=dims.loa)
         hydro = evaluate(mesh, weights.total_mass, weights.kg,
-                         beam=dims.beam, depth=dims.depth)
+                         beam=dims.beam, depth=dims.depth,
+                         criteria=criteria)
         if resistance_fn is None:
             resist = total_resistance(mesh, dims, n_exp, m_exp,
                                       draft=hydro.draft,
                                       speed=goal.target_speed_ms)
         else:
-            resist = resistance_fn(mesh, hydro.draft, goal.target_speed_ms)
+            # weights 전달 (C-2): Savitsky는 질량·LCG 의존 — 나선과 결합
+            resist = resistance_fn(mesh, hydro.draft, goal.target_speed_ms,
+                                   weights)
         motors = select_motors(resist.total)
         batt_kg = battery_mass(resist.effective_power, goal.endurance_h)
         propulsion_mass = motors.total_weight_kg + batt_kg
@@ -105,41 +111,68 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     volume_est = dims.cb * dims.loa * dims.beam * dims.draft_design
     regime = classify(goal.target_speed_ms, dims.loa, volume_est)
     vmax = max_displacement_speed(dims.loa)
-    try:
-        require_supported(regime)
-    except UnsupportedRegimeError as e:
-        # 거절에도 대안 숫자를 준다 (오너 제안 Q2): 이 크기의 한계속도,
-        # 이 속도에 필요한 최소 길이
-        raise UnsupportedRegimeError(
-            e.regime,
-            f"{e} | 추정 선체 L={dims.loa:.2f} m의 배수량형 한계속도는 "
-            f"{vmax:.2f} m/s입니다. 목표 {goal.target_speed_ms} m/s를 내려면 "
-            f"최소 L={min_loa_for_speed(goal.target_speed_ms):.2f} m가 "
-            f"필요합니다."
-        ) from e
+    require_supported(regime)  # C-2로 전 체계 개방 — 향후 신규 체계 게이트
 
-    # 체계별 경로 (Phase C-1): 배수량 = Wigley + 해석 Michell,
-    # 반배수량 = 트랜섬 선형 + 메쉬 Michell + 트랜섬 기저항
+    # 체계별 경로: 배수량 = Wigley + 해석 Michell / 반배수량 = 트랜섬 +
+    # 메쉬 Michell·기저항 (C-1) / 활주 = 데드라이즈 프리즘 + Savitsky (C-2)
+    criteria = None  # 기본 밴드 — 활주 분기에서만 교체
     if regime is Regime.SEMI_DISPLACEMENT:
         mesh = generate_transom_hull_mesh(dims)
         n_exp = m_exp = None
 
-        def resistance_fn(m_, d_, s_):
+        def resistance_fn(m_, d_, s_, w_=None):
             return total_resistance_semi(
                 m_, dims.loa, d_, s_, submerged_transom_area(dims, d_))
+    elif regime is Regime.PLANING:
+        import math as _math
+
+        from src.ai.hull_generator import (
+            PLANING_DEADRISE_DEG,
+            generate_planing_hull_mesh,
+        )
+        from src.physics.hydrostatics import StabilityCriteria
+        from src.physics.resistance import ResistanceReport
+        from src.physics.savitsky import solve_equilibrium
+
+        mesh = generate_planing_hull_mesh(dims)
+        n_exp = m_exp = None
+        # 활주정은 얕은 흘수·넓은 수선면이라 정지 GM/B가 0.5~1.5로
+        # 원래 큼 (BM = Ixx/∇, 흘수↓ → ∇↓ → BM↑). 배수량형의 상한
+        # 0.40(횡요 안락 기준)을 그대로 쓰면 전 활주 설계가 '너무
+        # 뻣뻣'으로 탈락 — 상한만 완화. 하한(복원력 최소)은 유지.
+        criteria = StabilityCriteria(gm_over_beam=(0.04, 1.50))
+
+        def resistance_fn(m_, d_, s_, w_):
+            st = solve_equilibrium(
+                weight_n=w_.total_mass * 9.81, speed=s_, beam=dims.beam,
+                deadrise_deg=PLANING_DEADRISE_DEG,
+                lcg_from_transom=dims.loa / 2.0 + w_.lcg)
+            return ResistanceReport(
+                speed=s_, froude=froude_length(s_, dims.loa),
+                reynolds=s_ * dims.loa / 1.19e-6,
+                wetted_area=st.wetted_length * dims.beam
+                / _math.cos(_math.radians(PLANING_DEADRISE_DEG)),
+                cf=0.0, form_factor=0.0,
+                rf=st.friction_n, rw=st.induced_n,
+                total=st.resistance_n,
+                effective_power=st.resistance_n * s_)
     else:
         mesh = generate_hull_mesh(dims)
         n_exp, m_exp = solve_exponents(dims.cb)
         resistance_fn = None
 
     weights, hydro, resist, motors, batt_kg, iteration = \
-        design_spiral(mesh, dims, goal, resistance_fn=resistance_fn)
+        design_spiral(mesh, dims, goal, resistance_fn=resistance_fn,
+                      criteria=criteria)
 
+    coeff_resistance = (None if resistance_fn is None else
+                        (lambda m_, d_, s_: resistance_fn(m_, d_, s_,
+                                                          weights)))
     coeffs = estimate_coefficients(
         dims=dims, draft=hydro.draft, mass=weights.total_mass,
         lcg=weights.lcg, speed=goal.target_speed_ms,
         mesh=mesh, n_exp=n_exp, m_exp=m_exp,
-        resistance_fn=resistance_fn,
+        resistance_fn=coeff_resistance,
     )
 
     mesh_file = "hull.stl"
@@ -154,8 +187,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
         "max_displacement_speed": vmax,
         "max_semi_speed": max_semi_speed(dims.loa),
-        "hull_family": ("transom" if regime is Regime.SEMI_DISPLACEMENT
-                        else "wigley"),
+        "hull_family": {"SEMI_DISPLACEMENT": "transom",
+                        "PLANING": "planing_deadrise"}.get(regime.name,
+                                                           "wigley"),
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),
@@ -236,6 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="outputs", help="출력 디렉토리")
     parser.add_argument("--loa", type=float, default=None,
                         help="선체 길이 직접 지정 [m] (생략 시 적재량에서 역산)")
+    parser.add_argument("--endurance", type=float, default=None,
+                        help="항속시간 [h] (생략 시 기본값 — 활주형은 "
+                             "전력 소모가 커서 짧게 잡아야 배터리가 가벼움)")
     args = parser.parse_args(argv)
 
     # 3입력 UX (#25 오너 제안): 속도 생략 시 용도가 결정
@@ -252,13 +289,16 @@ def main(argv: list[str] | None = None) -> int:
                   if preset.speed_source == "data" else "개략 기본값")
         print(f"속도 미지정 → 용도 프리셋 적용: {speed:.2f} m/s ({origin})")
 
-    goal = GoalSpec(target_speed_ms=speed, payload_kg=args.payload,
-                    purpose=args.purpose)
+    goal_kwargs = dict(target_speed_ms=speed, payload_kg=args.payload,
+                       purpose=args.purpose)
+    if args.endurance is not None:
+        goal_kwargs["endurance_h"] = args.endurance
+    goal = GoalSpec(**goal_kwargs)
     try:
         report = run_pipeline(goal, args.out, loa=args.loa)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
-            SpiralNotConvergedError) as e:
+            SpiralNotConvergedError, PlaningEquilibriumError) as e:
         print(f"[중단] {e}", file=sys.stderr)
         return 3
     _print_summary(report)

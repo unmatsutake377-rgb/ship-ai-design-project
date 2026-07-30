@@ -43,7 +43,7 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
                               cb=0.5)
         weights, hydro, resist, motors, batt_kg, _ = design_spiral(
             mesh, dims, goal,
-            resistance_fn=lambda m_, d_, s_:
+            resistance_fn=lambda m_, d_, s_, w_=None:
                 total_resistance_mesh(m_, target_loa, d_, s_),
         )
         if not hydro.passed:

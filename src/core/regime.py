@@ -70,15 +70,11 @@ def min_loa_for_speed(speed_ms: float) -> float:
 def require_supported(regime: Regime) -> None:
     """미구현 체계면 명시적으로 중단한다.
 
-    Phase C-1 (2026-07-30): 반배수량 개방 — 배수량+반배수량 지원,
-    활주만 거절 유지."""
-    if regime is Regime.PLANING:
-        raise UnsupportedRegimeError(
-            regime,
-            f"현재 버전은 배수량·반배수량(Fn < {FN_SEMI_MAX})까지 지원합니다. "
-            f"요청된 체계: {_REGIME_KO[regime]}. "
-            "목표 속도를 낮추거나 더 긴 선체를 허용해 주세요.",
-        )
+    Phase C-2 (2026-07-30): 활주(Savitsky) 개방 — **전 체계 지원 도달**.
+    현재는 항상 통과. 함수는 향후 신규 체계 추가 시의 게이트로 유지.
+    (활주 평형이 물리적으로 불성립하는 조합은 Savitsky 솔버가
+    PlaningEquilibriumError로 개별 거절함 — 체계 게이트와 역할 분리)"""
+    return
 
 
 def max_semi_speed(loa: float) -> float:

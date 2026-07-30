@@ -40,10 +40,10 @@ def test_semi_displacement_now_supported():
     require_supported(Regime.SEMI_DISPLACEMENT)  # 예외 없어야 함
 
 
-def test_planing_still_rejected_with_message():
-    with pytest.raises(UnsupportedRegimeError) as exc:
-        require_supported(Regime.PLANING)
-    assert "활주" in str(exc.value)
+def test_all_regimes_supported():
+    """C-2 (2026-07-30): 활주 개방 — 세 체계 전부 게이트 통과."""
+    for regime in Regime:
+        require_supported(regime)  # 예외 없어야 함
 
 
 def test_high_fn_classified_planing():
