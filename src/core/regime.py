@@ -27,9 +27,10 @@ class UnsupportedRegimeError(NotImplementedError):
 
 
 _REGIME_KO = {
-    Regime.SEMI_DISPLACEMENT: "반배수량형 (Fn 0.4~, 2차 사이클에서 지원 예정)",
-    Regime.PLANING: "활주형 (Fn∇ ≥ 3, Phase C에서 지원 예정)",
+    Regime.PLANING: "활주형 (Fn∇ ≥ 3, Savitsky 체계 — 추후 지원)",
 }
+
+FN_SEMI_MAX = 1.0  # 반배수량 상한 (길이 Froude 수) — 그 위는 활주 영역
 
 
 def froude_length(speed_ms: float, loa: float) -> float:
@@ -45,7 +46,7 @@ def froude_volumetric(speed_ms: float, volume_m3: float) -> float:
 def classify(speed_ms: float, loa: float, volume_m3: float) -> Regime:
     fn = froude_length(speed_ms, loa)
     fnv = froude_volumetric(speed_ms, volume_m3)
-    if fnv >= FNV_PLANING_MIN:
+    if fnv >= FNV_PLANING_MIN or fn >= FN_SEMI_MAX:
         return Regime.PLANING
     if fn < FN_DISPLACEMENT_MAX:
         return Regime.DISPLACEMENT
@@ -67,11 +68,19 @@ def min_loa_for_speed(speed_ms: float) -> float:
 
 
 def require_supported(regime: Regime) -> None:
-    """Phase A 미구현 체계면 명시적으로 중단한다."""
-    if regime is not Regime.DISPLACEMENT:
+    """미구현 체계면 명시적으로 중단한다.
+
+    Phase C-1 (2026-07-30): 반배수량 개방 — 배수량+반배수량 지원,
+    활주만 거절 유지."""
+    if regime is Regime.PLANING:
         raise UnsupportedRegimeError(
             regime,
-            f"현재 버전은 배수량형(Fn < {FN_DISPLACEMENT_MAX})만 지원합니다. "
+            f"현재 버전은 배수량·반배수량(Fn < {FN_SEMI_MAX})까지 지원합니다. "
             f"요청된 체계: {_REGIME_KO[regime]}. "
             "목표 속도를 낮추거나 더 긴 선체를 허용해 주세요.",
         )
+
+
+def max_semi_speed(loa: float) -> float:
+    """반배수량 상한 속도 [m/s] = Fn_semi_max·√(g·L)."""
+    return FN_SEMI_MAX * math.sqrt(G * loa)

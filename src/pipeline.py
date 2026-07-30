@@ -22,14 +22,18 @@ from src.ai.dimension_estimator import (
 from src.ai.hull_generator import (
     CbOutOfRangeError,
     generate_hull_mesh,
+    generate_transom_hull_mesh,
     solve_exponents,
+    submerged_transom_area,
 )
 from src.core.regime import (
+    Regime,
     UnsupportedRegimeError,
     classify,
     froude_length,
     froude_volumetric,
     max_displacement_speed,
+    max_semi_speed,
     min_loa_for_speed,
     require_supported,
 )
@@ -41,7 +45,7 @@ from src.physics.propulsion import (
     battery_mass,
     select_motors,
 )
-from src.physics.resistance import total_resistance
+from src.physics.resistance import total_resistance, total_resistance_semi
 
 MAX_SPIRAL_ITER = 12   # 설계 나선 최대 반복
 SPIRAL_TOL = 1e-3      # 전체 중량 상대 변화 수렴 기준
@@ -114,16 +118,28 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
             f"필요합니다."
         ) from e
 
-    mesh = generate_hull_mesh(dims)
-    n_exp, m_exp = solve_exponents(dims.cb)
+    # 체계별 경로 (Phase C-1): 배수량 = Wigley + 해석 Michell,
+    # 반배수량 = 트랜섬 선형 + 메쉬 Michell + 트랜섬 기저항
+    if regime is Regime.SEMI_DISPLACEMENT:
+        mesh = generate_transom_hull_mesh(dims)
+        n_exp = m_exp = None
+
+        def resistance_fn(m_, d_, s_):
+            return total_resistance_semi(
+                m_, dims.loa, d_, s_, submerged_transom_area(dims, d_))
+    else:
+        mesh = generate_hull_mesh(dims)
+        n_exp, m_exp = solve_exponents(dims.cb)
+        resistance_fn = None
 
     weights, hydro, resist, motors, batt_kg, iteration = \
-        design_spiral(mesh, dims, goal)
+        design_spiral(mesh, dims, goal, resistance_fn=resistance_fn)
 
     coeffs = estimate_coefficients(
         dims=dims, draft=hydro.draft, mass=weights.total_mass,
         lcg=weights.lcg, speed=goal.target_speed_ms,
         mesh=mesh, n_exp=n_exp, m_exp=m_exp,
+        resistance_fn=resistance_fn,
     )
 
     mesh_file = "hull.stl"
@@ -137,6 +153,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "froude_length": froude_length(goal.target_speed_ms, dims.loa),
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
         "max_displacement_speed": vmax,
+        "max_semi_speed": max_semi_speed(dims.loa),
+        "hull_family": ("transom" if regime is Regime.SEMI_DISPLACEMENT
+                        else "wigley"),
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),

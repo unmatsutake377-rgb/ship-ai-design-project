@@ -35,10 +35,26 @@ def test_planing_regime():
     assert classify(speed, 4.0, vol) is Regime.PLANING
 
 
-def test_require_supported_raises_with_message():
+def test_semi_displacement_now_supported():
+    """Phase C-1 게이트 개방: 반배수량은 더 이상 거절하지 않음."""
+    require_supported(Regime.SEMI_DISPLACEMENT)  # 예외 없어야 함
+
+
+def test_planing_still_rejected_with_message():
     with pytest.raises(UnsupportedRegimeError) as exc:
-        require_supported(Regime.SEMI_DISPLACEMENT)
-    assert "반배수량" in str(exc.value)
+        require_supported(Regime.PLANING)
+    assert "활주" in str(exc.value)
+
+
+def test_high_fn_classified_planing():
+    """Fn ≥ 1.0은 용적 Froude와 무관하게 활주 취급 (Phase C-1)."""
+    from src.core.regime import FN_SEMI_MAX, max_semi_speed
+
+    loa = 4.0
+    v = max_semi_speed(loa) * 1.01
+    assert classify(v, loa, 0.5) is Regime.PLANING
+    assert max_semi_speed(loa) == pytest.approx(
+        FN_SEMI_MAX * (9.81 * loa) ** 0.5, rel=1e-9)
 
 
 def test_max_speed_known_value():

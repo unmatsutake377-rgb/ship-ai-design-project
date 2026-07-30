@@ -139,17 +139,22 @@ class CoefficientSet:
 def estimate_coefficients(dims: MainDimensions, draft: float, mass: float,
                           lcg: float, speed: float, mesh: trimesh.Trimesh,
                           n_exp: float, m_exp: float,
-                          rho: float = RHO_SEAWATER) -> CoefficientSet:
-    """Fossen 3자유도 계수 세트 (M4b 시뮬레이션·Phase B 내보내기 입력)."""
+                          rho: float = RHO_SEAWATER,
+                          resistance_fn=None) -> CoefficientSet:
+    """Fossen 3자유도 계수 세트 (M4b 시뮬레이션·Phase B 내보내기 입력).
+
+    resistance_fn(mesh, draft, speed) 주입 시 그 경로로 전진 감쇠 미분
+    (Phase C 반배수량 — 트랜섬 저항 포함). 기본은 Wigley 해석 경로."""
     nd, clamped = clarke_nondim(dims.loa, dims.beam, draft, dims.cb)
     L, U = dims.loa, speed
     half_rho = 0.5 * rho
 
     # 전진 감쇠: 자체 저항곡선 중앙차분
-    r_hi = total_resistance(mesh, dims, n_exp, m_exp, draft,
-                            (1.0 + SURGE_FD_STEP) * U, rho).total
-    r_lo = total_resistance(mesh, dims, n_exp, m_exp, draft,
-                            (1.0 - SURGE_FD_STEP) * U, rho).total
+    if resistance_fn is None:
+        def resistance_fn(m_, d_, s_):
+            return total_resistance(m_, dims, n_exp, m_exp, d_, s_, rho)
+    r_hi = resistance_fn(mesh, draft, (1.0 + SURGE_FD_STEP) * U).total
+    r_lo = resistance_fn(mesh, draft, (1.0 - SURGE_FD_STEP) * U).total
     xu = (r_hi - r_lo) / (2.0 * SURGE_FD_STEP * U)
 
     # 직진 안정 판별 — 부호 포함 정식 (2026-07-27 정정: 크기값 계산은 오류).

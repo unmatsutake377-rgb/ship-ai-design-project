@@ -47,11 +47,21 @@ def test_design_spiral_converges_and_realistic(tmp_path):
         assert json.load(f)["passed"] == report["passed"]
 
 
-def test_pipeline_rejects_fast_speed(tmp_path):
-    """반배수량 영역 요청 → 명시적 중단 (spec §2.1)."""
+def test_pipeline_semi_displacement_designs(tmp_path):
+    """Phase C-1: 반배수량 요청이 이제 설계됨 — 트랜섬 계열 경로."""
+    goal = GoalSpec(target_speed_ms=3.0, payload_kg=100.0, purpose="patrol")
+    report = run_pipeline(goal, tmp_path)
+    assert report["regime"] == "SEMI_DISPLACEMENT"
+    assert report["hull_family"] == "transom"
+    assert report["resistance"]["total"] > 0
+    assert report["passed"] in (True, False)  # 필터는 정상 판정
+
+
+def test_pipeline_rejects_planing(tmp_path):
+    """활주 영역은 여전히 명시적 중단 (Savitsky 추후)."""
     from src.core.regime import UnsupportedRegimeError
 
-    goal = GoalSpec(target_speed_ms=5.0, payload_kg=100.0, purpose="survey")
+    goal = GoalSpec(target_speed_ms=8.0, payload_kg=100.0, purpose="survey")
     with pytest.raises(UnsupportedRegimeError):
         run_pipeline(goal, tmp_path)
 
