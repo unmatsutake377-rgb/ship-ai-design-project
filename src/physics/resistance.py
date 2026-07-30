@@ -201,3 +201,29 @@ def total_resistance_mesh(mesh: trimesh.Trimesh, loa: float, draft: float,
     rf = frictional_resistance(speed, loa, s_wet, rho)
     rw = michell_wave_resistance_mesh(mesh, draft, speed, rho)
     return _assemble_report(speed, loa, s_wet, rf, rw)
+
+
+# 환기 트랜섬 기저저항 계수 (Phase C-1): 트랜섬 뒤 박리 사수역의 압력 결손.
+# Hoerner 기저항력 계열 개략 상수 — 정량 문헌 벤치마크 없이 자릿수 정합
+# 목적임을 명시 (반배수량 동적 부상·트림 미모델과 함께 Phase C 한계)
+TRANSOM_BASE_DRAG_COEF = 0.10
+
+
+def transom_drag(speed: float, transom_area: float,
+                 rho: float = RHO_SEAWATER) -> float:
+    """트랜섬 기저저항 [N] = ½·ρ·V²·A_t·C_bt."""
+    return 0.5 * rho * speed ** 2 * transom_area * TRANSOM_BASE_DRAG_COEF
+
+
+def total_resistance_semi(mesh: trimesh.Trimesh, loa: float, draft: float,
+                          speed: float, transom_area: float,
+                          rho: float = RHO_SEAWATER) -> ResistanceReport:
+    """반배수량 전저항 (Phase C-1) = ITTC 마찰 + 메쉬 Michell + 트랜섬항.
+
+    한계 (명시): 동적 부상·주행 트림 미모델 — 정적 흘수 근사.
+    Michell은 Fn 0.4~1.0에서 근사 유효 (박선 가정 내)."""
+    s_wet = wetted_surface(mesh, draft)
+    rf = frictional_resistance(speed, loa, s_wet, rho)
+    rw = michell_wave_resistance_mesh(mesh, draft, speed, rho) \
+        + transom_drag(speed, transom_area, rho)
+    return _assemble_report(speed, loa, s_wet, rf, rw)
