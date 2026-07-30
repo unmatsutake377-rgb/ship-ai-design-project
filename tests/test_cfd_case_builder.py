@@ -54,3 +54,44 @@ def test_render_template_fills_all():
 def test_render_template_leftover_raises():
     with pytest.raises(ValueError, match="OOPS"):
         render_template("{{OOPS}}", {"SPEED": 1.5})
+
+
+def _fake_report_dir(d):
+    """실제 파이프라인 없이 산출물 폴더 흉내 — 시험 고속화."""
+    import json
+    d.mkdir(parents=True)
+    box = trimesh.creation.box(bounds=[[-1.85, -0.5, 0.0], [1.85, 0.5, 0.6]])
+    box.export(d / "hull.stl")
+    report = {"goal": {"target_speed_ms": 1.5},
+              "dimensions": {"loa": 3.7},
+              "hydrostatics": {"draft": 0.25},
+              "mesh_file": "hull.stl"}
+    (d / "report.json").write_text(json.dumps(report))
+    return d
+
+
+REQUIRED_SIMPLE = [
+    "0/U", "0/p", "0/k", "0/omega", "0/nut",
+    "constant/transportProperties", "constant/turbulenceProperties",
+    "constant/triSurface/hull.stl",
+    "system/blockMeshDict", "system/controlDict",
+    "system/fvSchemes", "system/fvSolution", "system/snappyHexMeshDict",
+]
+
+
+def test_build_case_simple_complete(tmp_path):
+    from src.cfd.case_builder import build_case
+    case = build_case(_fake_report_dir(tmp_path / "rep"),
+                      tmp_path / "case", mode="simple")
+    for rel in REQUIRED_SIMPLE:
+        assert (case / rel).exists(), rel
+    # 안 메꿔진 구멍 0개 (render_template이 이미 막지만 이중 확인)
+    for f in case.rglob("*"):
+        if f.is_file() and f.suffix != ".stl":
+            assert "{{" not in f.read_text(), f
+    # 격자 상자가 L에 비례해 박혔는지
+    bmd = (case / "system/blockMeshDict").read_text()
+    assert "-5.55" in bmd and "12.95" in bmd  # -1.5*3.7, 3.5*3.7
+    # 단상 STL이 정말 물속 부분만인지
+    hull = trimesh.load(case / "constant/triSurface/hull.stl")
+    assert hull.bounds[1][2] <= 1e-9
