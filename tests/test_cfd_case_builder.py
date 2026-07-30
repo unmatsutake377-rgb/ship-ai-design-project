@@ -95,3 +95,25 @@ def test_build_case_simple_complete(tmp_path):
     # 단상 STL이 정말 물속 부분만인지
     hull = trimesh.load(case / "constant/triSurface/hull.stl")
     assert hull.bounds[1][2] <= 1e-9
+
+
+REQUIRED_INTER = [
+    "0/U", "0/p_rgh", "0/k", "0/omega", "0/nut", "0/alpha.water",
+    "constant/transportProperties", "constant/turbulenceProperties",
+    "constant/g", "constant/triSurface/hull.stl",
+    "system/blockMeshDict", "system/controlDict", "system/fvSchemes",
+    "system/fvSolution", "system/snappyHexMeshDict", "system/setFieldsDict",
+]
+
+
+def test_build_case_inter_complete(tmp_path):
+    from src.cfd.case_builder import build_case
+    case = build_case(_fake_report_dir(tmp_path / "rep"),
+                      tmp_path / "case", mode="inter")
+    for rel in REQUIRED_INTER:
+        assert (case / rel).exists(), rel
+    # 자유수면: STL이 통짜 (갑판까지, z>0 존재)
+    hull = trimesh.load(case / "constant/triSurface/hull.stl")
+    assert hull.bounds[1][2] > 0
+    # 물리 시간이 15L/V로 박혔는지 (15*3.7/1.5 = 37.0)
+    assert "37.0" in (case / "system/controlDict").read_text()

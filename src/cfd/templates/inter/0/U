@@ -1,0 +1,13 @@
+FoamFile { version 2.0; format ascii; class volVectorField; object U; }
+dimensions [0 1 -1 0 0 0 0];
+internalField uniform ({{SPEED}} 0 0);
+boundaryField
+{
+    inlet    { type fixedValue; value uniform ({{SPEED}} 0 0); }
+    outlet   { type inletOutlet; inletValue uniform (0 0 0); value $internalField; }
+    side     { type slip; }
+    bottom   { type slip; }
+    top      { type slip; }        // 이중모형: 수면 자리 미끄럼 벽
+    symmetry { type symmetryPlane; }
+    hull     { type noSlip; }
+}

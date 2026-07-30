@@ -1,0 +1,13 @@
+FoamFile { version 2.0; format ascii; class volScalarField; object alpha.water; }
+dimensions [0 0 0 0 0 0 0];
+internalField uniform 0;
+boundaryField
+{
+    inlet    { type fixedValue; value uniform 1; }   // 주: 수면 위 공기 유입도 물로 취급 — 거친 실증 한계 (플랜 B 의심 1순위)
+    outlet   { type zeroGradient; }
+    side     { type zeroGradient; }
+    bottom   { type zeroGradient; }
+    top      { type inletOutlet; inletValue uniform 0; value uniform 0; }
+    symmetry { type symmetryPlane; }
+    hull     { type zeroGradient; }
+}
