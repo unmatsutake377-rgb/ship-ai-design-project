@@ -31,14 +31,14 @@ python -m src.pipeline --speed 1.5 --payload 100 --purpose survey --out outputs/
 | 단계 | 모듈 | 하는 일 (일상어) |
 |---|---|---|
 | ① 치수 추정 | `src/ai/dimension_estimator.py` | "조사용이면 보통 길이:폭 = 3:1" 같은 실선 비율 통계로 L, B, 깊이 결정 |
-| ② 속도 체계 판정 | `src/core/regime.py` | 이 속도면 물을 "밀고 가는" 배(배수량형), 중간(반배수량형), "타고 달리는" 보트(활주형)인지 판별. 활주형만 아직 미지원 — 정직하게 거절 |
-| ③ 3D 선형 생성 | `src/ai/hull_generator.py` | 수학 공식으로 3D 배 표면 생성 (저속=Wigley, 고속=트랜섬 선미 계열). 구멍 없는(watertight) 메쉬 |
+| ② 속도 체계 판정 | `src/core/regime.py` | 이 속도면 물을 "밀고 가는" 배(배수량형), 중간(반배수량형), "타고 달리는" 보트(활주형)인지 판별 — **세 체계 전부 설계 지원** |
+| ③ 3D 선형 생성 | `src/ai/hull_generator.py` | 수학 공식으로 3D 배 표면 생성 (저속=Wigley, 고속=트랜섬 선미, 활주=V바닥 데드라이즈). 구멍 없는(watertight) 메쉬 |
 | ④ 무게 추정 | `src/physics/weights.py` | 선체 무게 + 배터리·모터 + 짐 = 전체 무게, 무게중심 높이(KG) 계산 |
 | ⑤ 뜨는지 검증 | `src/physics/hydrostatics.py` | 그 무게로 물에 넣으면 어디까지 잠기나(흘수), 기울여도 되돌아오나(GM) 판정 |
 | ⑥ 저항 계산 | `src/physics/resistance.py` | 이 속도로 가려면 몇 N으로 밀어야 하나 = 모터 크기의 근거 |
 | ⑦ 점수 매기기 | `src/hitl/scoring.py` | 사람(당신)이 결과에 1~5점 — 나중에 AI 재학습 때 반영 |
 
-**품질 보증:** 테스트 164개. 전부 "정답을 손으로 계산할 수 있는 문제"로 검증
+**품질 보증:** 테스트 172개. 전부 "정답을 손으로 계산할 수 있는 문제"로 검증
 (예: 직육면체 바지선은 공식이 있음 → 코드 답과 대조). 저항 모듈은 국제 표준 시험 선형(Wigley)의
 문헌값과 대조 — 오차 대역 안.
 
@@ -52,8 +52,9 @@ python -m src.pipeline --speed 1.5 --payload 100 --purpose survey --out outputs/
 | 쌍대비교 ELO | "두 배 중 어느 쪽?" 클릭으로 인간 선호 랭킹 축적 |
 | **Gazebo×ROS2** | 설계된 배가 로봇 시뮬레이터의 물에 떠서 **자율 웨이포인트 완주** (Phase B 완결) |
 | 반배수량 | 트랜섬 선형 + 고속 영역(Fn<1.0) 설계 개방 — 고속 순찰 USV 가능 (Phase C-1) |
+| **활주형** | Savitsky 1964 경험식으로 "물을 타고 달리는" 보트까지 개방 — **세 속도 체계 전부 커버** (Phase C-2) |
 
-물리 검증 원칙은 그대로: 모든 모듈이 해석해·문헌·독립 구현 대조를 통과해야 병합 (테스트 164개).
+물리 검증 원칙은 그대로: 모든 모듈이 해석해·문헌·독립 구현 대조를 통과해야 병합 (테스트 172개).
 
 **핵심 용어 4개만:**
 - **Cb (방형계수)**: 배가 상자에 얼마나 꽉 차는가. 0.45 = 날씬(빠름), 0.55 = 뚱뚱(짐 많이)
@@ -80,11 +81,15 @@ python -m pytest
 python3 -c "from src.hitl.scoring import record_score; record_score('demo_001', 4, 'data/user_scores.csv')"
 ```
 
-속도를 3.0으로 올리면 반배수량 트랜섬 선형으로 자동 전환됨. 8.0이면 "활주형 미지원" 거절.
+속도를 3.0으로 올리면 반배수량 트랜섬 선형, 6.0이면 활주형(V바닥)으로 자동 전환됨.
+불가능한 조합(모터 카탈로그 초과, 활주 평형 불성립)은 사유와 함께 정직하게 거절.
 
 ```bash
 # 고속 순찰정 설계 (반배수량, Phase C-1)
 python -m src.pipeline --speed 3.0 --payload 100 --purpose patrol --loa 4.3
+
+# 활주정 설계 (Savitsky, Phase C-2) — 활주는 전기를 많이 먹어 항속시간을 짧게
+python -m src.pipeline --speed 6.0 --payload 20 --purpose patrol --loa 2.8 --endurance 1.0
 
 # 파레토 최적화 (후보 여러 척 → 트레이드오프 지도)
 python -m src.optimize --speed 1.2 --payload 100
@@ -94,9 +99,8 @@ python -m src.optimize --speed 1.2 --payload 100
 
 | 순서 | 이름 | 내용 | 끝나면 얻는 것 |
 |---|---|---|---|
-| ✅ | M4·M5·Phase B·C-1 | 동역학, 최적화, Ship-D, ELO, Gazebo 완주, 반배수량 — 전부 완료 (위 표 참조) | |
-| 다음 | 활주형 (Savitsky) | 물 위를 떠서 달리는 고속 보트 물리 | 전체 속도 영역 커버 |
-| | CFD 훅 (원안 Step 5) | 파레토 상위 후보만 OpenFOAM 정밀 해석 → 학습 피드백 | 능동 학습 루프 |
+| ✅ | M4·M5·Phase B·C-1·**C-2** | 동역학, 최적화, Ship-D, ELO, Gazebo 완주, 반배수량, **활주(Savitsky) — 전 속도 체계 개방** | |
+| 다음 | CFD 훅 (원안 Step 5) | 파레토 상위 후보만 OpenFOAM 정밀 해석 → 학습 피드백 | 능동 학습 루프 — 원안 6단계의 마지막 조각 |
 | | 백로그 | MaxBox(탑재 공간) 목적화, 파레토 가중 프리셋, 실선 데이터 확충 | |
 
 ## 5. 당신(프로젝트 오너)에게 부탁할 일
@@ -116,7 +120,7 @@ python -m src.optimize --speed 1.2 --payload 100
 docs/INDEX.md             문서 지도 (여기부터)
 docs/PROGRESS.md          현황판 · docs/worklog/ 일지 · docs/feedback-log.md 피드백 기록지
 docs/superpowers/         설계 스펙(v3) + 구현 계획서들
-src/                      실제 코드 · tests/ 검증 164개
+src/                      실제 코드 · tests/ 검증 172개
 data/                     실선 USV·모터 카탈로그·ELO 이력 (Ship-D는 로컬 전용)
 ros2_ws/docker/           시뮬 이미지·제어 노드·실험 스크립트 (Phase B)
 outputs/                  실행 결과물 (git 미포함)
