@@ -52,7 +52,17 @@ def generate_hull_mesh(dims: MainDimensions, n_stations: int = 61,
                        n_below: int = 15, n_above: int = 9) -> trimesh.Trimesh:
     """watertight 선체 메쉬 생성. 좌표계: x 선수미(+선수), y 좌우, z 상방(0=킬)."""
     n, m = solve_exponents(dims.cb)
+    return _build_mesh(lambda x, z: _half_breadth(x, z, dims, n, m),
+                       dims, n_stations, n_below, n_above, cap_stern=False)
 
+
+def _build_mesh(half_breadth_fn, dims: MainDimensions, n_stations: int,
+                n_below: int, n_above: int,
+                cap_stern: bool = False) -> trimesh.Trimesh:
+    """반폭 함수 → watertight 메쉬 (Wigley·트랜섬 공용 빌더).
+
+    cap_stern: 선미 폭이 0이 아닌 형상(트랜섬)은 선미면 캡 필요.
+    """
     xs = np.linspace(-dims.loa / 2, dims.loa / 2, n_stations)
     zs = np.concatenate([
         np.linspace(0.0, dims.draft_design, n_below),
@@ -64,10 +74,10 @@ def generate_hull_mesh(dims: MainDimensions, n_stations: int = 61,
     verts = []
     for x in xs:
         for z in zs:
-            verts.append((x, _half_breadth(x, z, dims, n, m), z))
+            verts.append((x, half_breadth_fn(x, z), z))
     for x in xs:
         for z in zs:
-            verts.append((x, -_half_breadth(x, z, dims, n, m), z))
+            verts.append((x, -half_breadth_fn(x, z), z))
     # + 0.0: 좌현의 -0.0을 +0.0으로 정규화 — 아니면 y=0 정점(킬·선수미)이
     # 우현 +0.0과 해시가 달라 병합되지 않아 watertight가 깨진다
     verts = np.array(verts) + 0.0
@@ -90,6 +100,11 @@ def generate_hull_mesh(dims: MainDimensions, n_stations: int = 61,
         a, b = sid(i, top), sid(i + 1, top)
         c, d = pid(i + 1, top), pid(i, top)
         faces += [[a, b, c], [a, c, d]]
+    if cap_stern:  # 트랜섬면 마감 (선미 스테이션 i=0, 폭>0)
+        for j in range(nz - 1):
+            a, b = sid(0, j), sid(0, j + 1)
+            c, d = pid(0, j + 1), pid(0, j)
+            faces += [[a, c, b], [a, d, c]]
 
     # process=True: 중복 정점 병합(킬/선수미의 y=0 접합), 퇴화 면 제거
     mesh = trimesh.Trimesh(vertices=verts, faces=np.array(faces), process=True)
@@ -115,3 +130,82 @@ def generate_hull_mesh(dims: MainDimensions, n_stations: int = 61,
     if mesh.volume < 0:  # 법선이 안쪽을 향하면 뒤집는다
         mesh.invert()
     return mesh
+
+
+# ---------- 트랜섬 선미 계열 (Phase C-1, spec v2 §2.2 예고) ----------
+# 반배수량 USV의 실제 형상: 뾰족 선수 + 평행부 + 잘린 선미(트랜섬).
+# 세로 형상 F(x): 선수부(길이 BOW_FRACTION·L)는 1−ξⁿ, 선미부는
+# 1−(1−β_t)·vᵖ (v=선미 방향 정규화, x=−L/2에서 F=β_t — 트랜섬 폭비).
+# 단면 H(z)는 Wigley와 동일. Cm은 반배수량 V형 단면을 반영해 낮게.
+
+TRANSOM_BOW_FRACTION = 0.45  # 선수부 길이/전장
+TRANSOM_TAPER_P = 2.0        # 선미 테이퍼 지수
+TRANSOM_BETA = 0.55          # 트랜섬 폭 / 최대폭
+TRANSOM_CM = 0.65            # 반배수량 V형 단면 개략 중앙단면계수
+
+
+def _transom_cp_bounds(beta_t: float = TRANSOM_BETA,
+                       p: float = TRANSOM_TAPER_P,
+                       bow_fraction: float = TRANSOM_BOW_FRACTION
+                       ) -> tuple[float, float]:
+    k_aft = 1.0 - (1.0 - beta_t) / (p + 1.0)
+    l_aft = 1.0 - bow_fraction
+    # 선수 지수 n의 건전 범위 (CP_RANGE와 동일 사상)
+    return (bow_fraction * CP_RANGE[0] + l_aft * k_aft,
+            bow_fraction * CP_RANGE[1] + l_aft * k_aft)
+
+
+def solve_transom_exponents(cb: float, cm: float = TRANSOM_CM
+                            ) -> tuple[float, float]:
+    """목표 Cb → (선수 지수 n, 단면 지수 m). 범위 밖은 명시적 거절."""
+    cp = cb / cm
+    lo, hi = _transom_cp_bounds()
+    if not lo <= cp <= hi:
+        raise CbOutOfRangeError(
+            f"Cb={cb:.3f} (Cp={cp:.3f})는 트랜섬 계열 범위 밖입니다. "
+            f"도달 가능 Cb: [{lo * cm:.3f}, {hi * cm:.3f}] (Cm={cm})"
+        )
+    k_aft = 1.0 - (1.0 - TRANSOM_BETA) / (TRANSOM_TAPER_P + 1.0)
+    a = (cp - (1.0 - TRANSOM_BOW_FRACTION) * k_aft) / TRANSOM_BOW_FRACTION
+    n = a / (1.0 - a)
+    m = cm / (1.0 - cm)
+    return n, m
+
+
+def _transom_half_breadth(x: float, z: float, dims: MainDimensions,
+                          n: float, m: float) -> float:
+    x_b = dims.loa / 2 - TRANSOM_BOW_FRACTION * dims.loa  # 선수부 시작
+    if x >= x_b:  # 선수부
+        xi = (x - x_b) / (dims.loa / 2 - x_b)
+        longitudinal = max(0.0, 1.0 - xi ** n)
+    else:  # 평행~트랜섬
+        v = (x_b - x) / (x_b + dims.loa / 2)
+        longitudinal = 1.0 - (1.0 - TRANSOM_BETA) * v ** TRANSOM_TAPER_P
+    if z >= dims.draft_design:
+        vertical = 1.0
+    else:
+        vertical = 1.0 - ((dims.draft_design - z) / dims.draft_design) ** m
+    return 0.5 * dims.beam * longitudinal * max(0.0, vertical)
+
+
+def generate_transom_hull_mesh(dims: MainDimensions, n_stations: int = 61,
+                               n_below: int = 15, n_above: int = 9
+                               ) -> trimesh.Trimesh:
+    """트랜섬 선미 watertight 메쉬 (반배수량용)."""
+    n, m = solve_transom_exponents(dims.cb)
+    return _build_mesh(lambda x, z: _transom_half_breadth(x, z, dims, n, m),
+                       dims, n_stations, n_below, n_above, cap_stern=True)
+
+
+def submerged_transom_area(dims: MainDimensions, draft: float) -> float:
+    """흘수 아래 트랜섬 면적 [m²] — 반배수량 저항의 트랜섬 항 입력.
+
+    A_t = ∫₀^T 2·y_t(z) dz,  y_t(z) = β_t·(B/2)·H(z)
+    해석 적분: H의 z-적분 = z − T_d·(1−(1−z/T_d)^{m+1})/(m+1) 형태 대신
+    수치 적분 (draft가 설계흘수 초과 시 wall-side 구간 포함).
+    """
+    _, m = solve_transom_exponents(dims.cb)
+    zs = np.linspace(0.0, draft, 200)
+    td = dims.draft_design
+    h = np.where(zs >= td, 1.0, 1.0 - ((td - zs) / td) ** m)
+    return float(TRANSOM_BETA * dims.beam * np.trapezoid(h, zs))
