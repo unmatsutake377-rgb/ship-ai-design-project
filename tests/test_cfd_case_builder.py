@@ -117,3 +117,7 @@ def test_build_case_inter_complete(tmp_path):
     assert hull.bounds[1][2] > 0
     # 물리 시간이 15L/V로 박혔는지 (15*3.7/1.5 = 37.0)
     assert "37.0" in (case / "system/controlDict").read_text()
+    # 침수 버그 수리 (07-31): 입구가 물/공기로 분리돼야 함
+    bmd = (case / "system/blockMeshDict").read_text()
+    assert "inletWater" in bmd and "inletAir" in bmd
+    assert "inletWater" in (case / "0/alpha.water").read_text()

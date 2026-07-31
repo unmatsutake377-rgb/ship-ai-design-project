@@ -1,19 +1,29 @@
 FoamFile { version 2.0; format ascii; class dictionary; object blockMeshDict; }
+// 2단 블록: 수면(z=0)에서 분리 — 입구를 물/공기로 나눠 침수 버그 방지
+// (단일 입구 alpha=1이 공기층까지 물을 주입해 수위가 계속 상승했던
+//  실측 버그의 수리, 2026-07-31)
 scale 1;
 vertices
 (
     ({{XMIN}} {{YMIN}} {{ZMIN}})  ({{XMAX}} {{YMIN}} {{ZMIN}})
     ({{XMAX}} {{YMAX}} {{ZMIN}})  ({{XMIN}} {{YMAX}} {{ZMIN}})
+    ({{XMIN}} {{YMIN}} 0)         ({{XMAX}} {{YMIN}} 0)
+    ({{XMAX}} {{YMAX}} 0)         ({{XMIN}} {{YMAX}} 0)
     ({{XMIN}} {{YMIN}} {{ZMAX}})  ({{XMAX}} {{YMIN}} {{ZMAX}})
     ({{XMAX}} {{YMAX}} {{ZMAX}})  ({{XMIN}} {{YMAX}} {{ZMAX}})
 );
-blocks ( hex (0 1 2 3 4 5 6 7) ({{NX}} {{NY}} {{NZ}}) simpleGrading (1 1 1) );
+blocks
+(
+    hex (0 1 2 3 4 5 6 7)   ({{NX}} {{NY}} {{NZ_WATER}}) simpleGrading (1 1 1)
+    hex (4 5 6 7 8 9 10 11) ({{NX}} {{NY}} {{NZ_AIR}})   simpleGrading (1 1 1)
+);
 boundary
 (
-    inlet    { type patch; faces ((0 4 7 3)); }
-    outlet   { type patch; faces ((1 2 6 5)); }
-    symmetry { type symmetryPlane; faces ((0 1 5 4)); }
-    side     { type patch; faces ((3 7 6 2)); }
-    bottom   { type patch; faces ((0 3 2 1)); }
-    top      { type patch; faces ((4 5 6 7)); }
+    inletWater { type patch; faces ((0 4 7 3)); }
+    inletAir   { type patch; faces ((4 8 11 7)); }
+    outlet     { type patch; faces ((1 2 6 5) (5 6 10 9)); }
+    symmetry   { type symmetryPlane; faces ((0 1 5 4) (4 5 9 8)); }
+    side       { type patch; faces ((3 7 6 2) (7 11 10 6)); }
+    bottom     { type patch; faces ((0 3 2 1)); }
+    top        { type patch; faces ((8 9 10 11)); }
 );

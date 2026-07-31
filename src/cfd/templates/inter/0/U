@@ -3,11 +3,12 @@ dimensions [0 1 -1 0 0 0 0];
 internalField uniform ({{SPEED}} 0 0);
 boundaryField
 {
-    inlet    { type fixedValue; value uniform ({{SPEED}} 0 0); }
+    inletWater { type fixedValue; value uniform ({{SPEED}} 0 0); }
+    inletAir   { type fixedValue; value uniform ({{SPEED}} 0 0); }  // 공기도 같이 흐름
     outlet   { type inletOutlet; inletValue uniform (0 0 0); value $internalField; }
     side     { type slip; }
     bottom   { type slip; }
-    top      { type slip; }        // 이중모형: 수면 자리 미끄럼 벽
+    top      { type slip; }
     symmetry { type symmetryPlane; }
     hull     { type noSlip; }
 }

@@ -41,6 +41,10 @@ def domain_box(loa: float, mode: str) -> dict:
     box["LOC_X"] = box["XMAX"] - 0.1 * loa
     box["LOC_Y"] = box["YMAX"] - 0.1 * loa
     box["LOC_Z"] = box["ZMIN"] + 0.1 * loa
+    # inter 2단 블록용 (침수 버그 수리): 물층 1L / 공기층 0.5L,
+    # 셀 높이 같게 2:1 배분
+    box["NZ_WATER"] = int(nz * 2 / 3)
+    box["NZ_AIR"] = nz - box["NZ_WATER"]
     return box
 
 

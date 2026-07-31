@@ -3,7 +3,8 @@ dimensions [0 0 -1 0 0 0 0];
 internalField uniform {{OMEGA_INIT}};
 boundaryField
 {
-    inlet    { type fixedValue; value uniform {{OMEGA_INIT}}; }
+    inletWater { type fixedValue; value uniform {{OMEGA_INIT}}; }
+    inletAir   { type fixedValue; value uniform {{OMEGA_INIT}}; }
     outlet   { type inletOutlet; inletValue uniform {{OMEGA_INIT}}; value $internalField; }
     side     { type slip; }
     bottom   { type slip; }

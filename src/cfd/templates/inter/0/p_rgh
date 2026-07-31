@@ -3,11 +3,12 @@ dimensions [1 -1 -2 0 0 0 0];
 internalField uniform 0;
 boundaryField
 {
-    inlet    { type fixedFluxPressure; value uniform 0; }
-    outlet   { type zeroGradient; }
-    side     { type fixedFluxPressure; value uniform 0; }
-    bottom   { type fixedFluxPressure; value uniform 0; }
-    top      { type totalPressure; p0 uniform 0; value uniform 0; }
-    symmetry { type symmetryPlane; }
-    hull     { type fixedFluxPressure; value uniform 0; }
+    inletWater { type fixedFluxPressure; value uniform 0; }
+    inletAir   { type fixedFluxPressure; value uniform 0; }
+    outlet     { type zeroGradient; }
+    side       { type fixedFluxPressure; value uniform 0; }
+    bottom     { type fixedFluxPressure; value uniform 0; }
+    top        { type totalPressure; p0 uniform 0; value uniform 0; }
+    symmetry   { type symmetryPlane; }
+    hull       { type fixedFluxPressure; value uniform 0; }
 }
