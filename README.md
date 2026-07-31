@@ -93,6 +93,11 @@ python -m src.pipeline --speed 6.0 --payload 20 --purpose patrol --loa 2.8 --end
 
 # 파레토 최적화 (후보 여러 척 → 트레이드오프 지도)
 python -m src.optimize --speed 1.2 --payload 100
+
+# CFD 훅 (원안 Step 5): 설계 결과를 OpenFOAM 정밀 해석으로 (Docker 필요)
+python -m src.cfd.hook --report outputs/demo --mode simple   # 케이스 생성
+cfd/docker/run_case.sh outputs/cfd_cases/demo_simple_1.5ms simpleFoam
+python -m src.cfd.hook --report outputs/demo --mode simple --parse-only  # 라벨 수확
 ```
 
 ## 4. 앞으로 할 일 (로드맵)
@@ -100,7 +105,7 @@ python -m src.optimize --speed 1.2 --payload 100
 | 순서 | 이름 | 내용 | 끝나면 얻는 것 |
 |---|---|---|---|
 | ✅ | M4·M5·Phase B·C-1·**C-2** | 동역학, 최적화, Ship-D, ELO, Gazebo 완주, 반배수량, **활주(Savitsky) — 전 속도 체계 개방** | |
-| 다음 | CFD 훅 (원안 Step 5) | 파레토 상위 후보만 OpenFOAM 정밀 해석 → 학습 피드백 | 능동 학습 루프 — 원안 6단계의 마지막 조각 |
+| ✅ | **CFD 훅 (원안 Step 5)** | 설계 산출물 → OpenFOAM 케이스 자동 생성 → Docker 실행 → 저항 라벨 축적. Wigley 실증: 격자 7.8만 셀, CFD 점성 vs ITTC-57 마찰 자릿수 일치 | **원안 6단계 전부 최소 1회 실증** — 능동 학습 재료(cfd_labels.csv) 준비 완료 |
 | | 백로그 | MaxBox(탑재 공간) 목적화, 파레토 가중 프리셋, 실선 데이터 확충 | |
 
 ## 5. 당신(프로젝트 오너)에게 부탁할 일
