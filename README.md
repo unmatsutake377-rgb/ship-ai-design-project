@@ -124,6 +124,7 @@ python -m src.cfd.hook --report outputs/demo --mode simple --parse-only  # 라�
 
 ```
 docs/INDEX.md             문서 지도 (여기부터)
+docs/easy-manual.md       🚢 쉬운 설명서 — 비전공자용 전체 이야기 (상시 최신화)
 docs/PROGRESS.md          현황판 · docs/worklog/ 일지 · docs/feedback-log.md 피드백 기록지
 docs/superpowers/         설계 스펙(v3) + 구현 계획서들
 src/                      실제 코드 · tests/ 검증 172개
