@@ -11,7 +11,7 @@ def _fake_report_dir(d):
     box = trimesh.creation.box(bounds=[[-1.85, -0.5, 0.0], [1.85, 0.5, 0.6]])
     box.export(d / "hull.stl")
     report = {"goal": {"target_speed_ms": 1.5},
-              "dimensions": {"loa": 3.7},
+              "dimensions": {"loa": 3.7, "beam": 0.99},
               "hydrostatics": {"draft": 0.25},
               "mesh_file": "hull.stl",
               "resistance": {"rf": 11.0, "rw": 7.0, "total": 18.0}}

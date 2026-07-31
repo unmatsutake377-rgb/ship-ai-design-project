@@ -41,8 +41,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.parse_only:
         result = parse_forces(case)
+        dims = report["dimensions"]
         append_label(Path(args.labels), name, speed, draft, result,
-                     report["resistance"])
+                     report["resistance"],
+                     extra={"loa_m": dims["loa"], "beam_m": dims["beam"]})
         emp = report["resistance"]
         print(f"CFD 전저항  : {result.drag_total_n:.1f} N "
               f"(압력 {result.drag_pressure_n:.1f} + "
