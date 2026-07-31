@@ -63,11 +63,19 @@ def test_survey_band_is_data_driven():
     assert 1.7 < band.lb < 2.5
 
 
-def test_patrol_band_falls_back_with_label():
-    """데이터 부족 카테고리는 fallback — 반드시 표시가 남아야 함."""
+def test_patrol_band_now_data_driven():
+    """#17 수집(07-31: L30 정정 + M75·Inspector 90 추가)으로 patrol
+    단동 3척 확보 → 치수 밴드가 fallback에서 데이터 기반으로 전환."""
     band = PURPOSE_BANDS["patrol"]
+    assert band.source == "data"
+    assert band.n_samples >= 3
+
+
+def test_workboat_band_falls_back_with_label():
+    """데이터 부족 카테고리는 fallback — 반드시 표시가 남아야 함.
+    (workboat은 단동 표본 부족 — 수집 진행형 #17)"""
+    band = PURPOSE_BANDS["workboat"]
     assert band.source == "fallback"
-    assert band.n_samples == 0
 
 
 def test_user_loa_override():
