@@ -1,0 +1,2 @@
+case_name,speed_ms,draft_m,cfd_total_n,cfd_pressure_n,cfd_viscous_n,converged,n_samples,emp_rf_n,emp_rw_n,emp_total_n
+demo_cfd_simple_1.5ms,1.5,0.1752803922630295,13.734219233333333,8.429539066666667,5.304680083333334,True,600,7.55422157989963,21.320473836089366,28.874695415988995

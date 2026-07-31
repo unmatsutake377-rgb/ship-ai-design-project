@@ -8,8 +8,11 @@ IMG=opencfd/openfoam-default:2406
 
 # 공식 이미지 엔트리포인트가 OpenFOAM 환경을 자동 소싱함.
 # (안 되면 플랜 B: bash -c "source /usr/lib/openfoam/openfoam2406/etc/bashrc && ...")
+# 주의: bash -l(로그인 셸)은 OpenFOAM 환경을 소싱하는 대신 홈으로 cd해버림
+# → 케이스 폴더로 명시적 cd 필수 (실측: -w /case가 무효화됨)
 docker run --rm -v "$CASE_DIR":/case -w /case "$IMG" bash -lc '
   set -e
+  cd /case
   blockMesh
   snappyHexMesh -overwrite
   if [ -f system/setFieldsDict ]; then setFields; fi
