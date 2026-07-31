@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parse-only", action="store_true",
                         help="실행 완료된 케이스에서 결과 파싱 + 라벨 병합")
     parser.add_argument("--labels", default="data/cfd_labels.csv")
+    parser.add_argument("--grid-factor", type=float, default=1.0,
+                        help="격자 배율 (수렴 연구용) — 1.5면 칸 수 ~3.4배")
     args = parser.parse_args(argv)
 
     report_dir = Path(args.report)
@@ -37,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     speed = report["goal"]["target_speed_ms"]
     draft = report["hydrostatics"]["draft"]
     name = f"{report_dir.name}_{args.mode}_{speed}ms"
+    if args.grid_factor != 1.0:
+        name += f"_g{args.grid_factor}"  # 격자별 라벨 분리 (수렴 비교용)
     case = Path(args.out) if args.out else Path("outputs/cfd_cases") / name
 
     if args.parse_only:
@@ -56,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"라벨 저장   : {args.labels}")
         return 0 if result.converged else 2
 
-    build_case(report_dir, case, args.mode)
+    build_case(report_dir, case, args.mode, grid_factor=args.grid_factor)
     print(f"케이스 생성 완료: {case}")
     print("다음 단계 (Docker 실행 — 수십 분):")
     print(f"  cfd/docker/run_case.sh {case} {SOLVER[args.mode]}")
