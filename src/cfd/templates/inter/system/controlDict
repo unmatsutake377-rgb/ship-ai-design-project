@@ -1,0 +1,21 @@
+FoamFile { version 2.0; format ascii; class dictionary; object controlDict; }
+application     interFoam;
+startFrom       startTime;  startTime 0;
+stopAt          endTime;    endTime   {{END_TIME}};
+deltaT          0.001;
+writeControl    adjustableRunTime;  writeInterval 5;  purgeWrite 2;
+adjustTimeStep  yes;  maxCo 3;  maxAlphaCo 3;  maxDeltaT 0.05;
+writeFormat     ascii;  timePrecision 6;
+functions
+{
+    forces
+    {
+        type            forces;
+        libs            (forces);
+        patches         (hull);
+        rho             rho;          // 2상: 밀도장을 직접 사용
+        writeControl    timeStep;
+        writeInterval   5;
+        CofR            (0 0 0);
+    }
+}
