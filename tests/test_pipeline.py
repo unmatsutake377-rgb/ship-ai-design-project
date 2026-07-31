@@ -76,6 +76,24 @@ def test_pipeline_planing_designs(tmp_path):
     assert report["passed"] is True
 
 
+def test_maxbox_space_check_rejects_oversized(tmp_path):
+    """#27: 무게는 실려도 부피가 안 들어가면 불합격."""
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
+    report = run_pipeline(goal, tmp_path, payload_volume=50.0)  # 50 m³ 괴물
+    assert report["checks_space"] is False
+    assert report["passed"] is False
+    assert report["maxbox"]["volume"] < 50.0
+
+
+def test_maxbox_default_density_passes(tmp_path):
+    """기본 밀도 환산 경로: 기존 데모(100 kg 조사장비)는 공간 합격 유지."""
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
+    report = run_pipeline(goal, tmp_path)
+    assert report["checks_space"] is True
+    assert "밀도 가정" in report["maxbox"]["volume_basis"]
+    assert report["maxbox"]["margin_ratio"] > 0
+
+
 def test_report_contains_speed_limit(tmp_path):
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
     report = run_pipeline(goal, tmp_path)

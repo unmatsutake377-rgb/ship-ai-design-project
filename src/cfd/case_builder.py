@@ -25,13 +25,17 @@ NU_SEAWATER = 1.19e-6   # src/pipeline.py 레이놀즈 계산과 동일
 N_CELLS = {"simple": (96, 32, 24), "inter": (96, 32, 36)}
 
 
-def domain_box(loa: float, mode: str) -> dict:
+def domain_box(loa: float, mode: str, grid_factor: float = 1.0) -> dict:
     """스펙 §3 도메인: 선수 앞 1L · 선미 뒤 3L · 옆 1.5L · 아래 1L.
 
     locationInMesh(snappy가 '여기가 유체다' 확인하는 점)는 하류
-    구석 근처 — 도메인 안이면서 선체에서 확실히 먼 곳."""
+    구석 근처 — 도메인 안이면서 선체에서 확실히 먼 곳.
+
+    grid_factor: 격자 수렴 연구용 배율 — 상자는 그대로, 각 방향 셀
+    수만 ×factor (1.5면 칸 수 ~3.4배). 답이 격자에 안 변할 때까지
+    쪼개보는 것이 수렴 연구."""
     zmax = 0.0 if mode == "simple" else 0.5 * loa
-    nx, ny, nz = N_CELLS[mode]
+    nx, ny, nz = (round(n * grid_factor) for n in N_CELLS[mode])
     box = {
         "XMIN": -1.5 * loa, "XMAX": 3.5 * loa,
         "YMIN": 0.0, "YMAX": 1.5 * loa,
@@ -70,12 +74,12 @@ def render_template(text: str, values: dict) -> str:
     return text
 
 
-def _case_values(report: dict, mode: str) -> dict:
+def _case_values(report: dict, mode: str, grid_factor: float = 1.0) -> dict:
     """report.json → 템플릿 값 사전."""
     loa = report["dimensions"]["loa"]
     speed = report["goal"]["target_speed_ms"]
     values = {"SPEED": speed, "NU": NU_SEAWATER, "RHO": RHO_SEAWATER,
-              "LOA": loa, **domain_box(loa, mode)}
+              "LOA": loa, **domain_box(loa, mode, grid_factor)}
     # 난류 초기값: 난류강도 I=5%, 길이척도 l=0.07L (관용 개략)
     k = 1.5 * (0.05 * speed) ** 2
     values["K_INIT"] = f"{k:.6g}"
@@ -85,11 +89,12 @@ def _case_values(report: dict, mode: str) -> dict:
     return values
 
 
-def build_case(report_dir: Path, out_dir: Path, mode: str) -> Path:
+def build_case(report_dir: Path, out_dir: Path, mode: str,
+               grid_factor: float = 1.0) -> Path:
     """산출물 폴더 → 완성된 OpenFOAM 케이스 폴더. 반환: 케이스 경로."""
     report_dir, out_dir = Path(report_dir), Path(out_dir)
     report = json.loads((report_dir / "report.json").read_text())
-    values = _case_values(report, mode)
+    values = _case_values(report, mode, grid_factor)
 
     case = out_dir
     if case.exists():

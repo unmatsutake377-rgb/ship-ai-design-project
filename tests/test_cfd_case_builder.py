@@ -22,6 +22,18 @@ def test_domain_box_inter_has_air():
     assert b["ZMAX"] == pytest.approx(0.5 * 4.0)  # 자유수면: 공기층
 
 
+def test_domain_box_grid_factor_scales_cells():
+    """격자 수렴 연구용: 배율 1.5 → 각 방향 셀 수 1.5배 (칸 수 ~3.4배)."""
+    base = domain_box(4.0, mode="inter")
+    fine = domain_box(4.0, mode="inter", grid_factor=1.5)
+    assert fine["NX"] == round(base["NX"] * 1.5)
+    assert fine["NY"] == round(base["NY"] * 1.5)
+    assert fine["NZ_WATER"] + fine["NZ_AIR"] == round(
+        (base["NZ_WATER"] + base["NZ_AIR"]) * 1.5)
+    # 상자 크기는 불변 — 칸만 잘게
+    assert fine["XMIN"] == base["XMIN"] and fine["ZMAX"] == base["ZMAX"]
+
+
 def test_location_in_mesh_inside_domain():
     b = domain_box(4.0, mode="simple")
     assert b["XMIN"] < b["LOC_X"] < b["XMAX"]

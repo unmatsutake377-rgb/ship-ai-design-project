@@ -103,7 +103,9 @@ def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
 
 
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
-                 loa: float | None = None) -> dict:
+                 loa: float | None = None,
+                 payload_volume: float | None = None) -> dict:
+    """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -175,6 +177,22 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         resistance_fn=coeff_resistance,
     )
 
+    # MaxBox 공간 검사 (#27): 무게(아르키메데스)와 별개로 "부피가
+    # 물리적으로 들어가나" — 정역학과 책임 분리해 이 층에서 합성
+    from src.physics.maxbox import largest_box, payload_volume_for
+
+    box = largest_box(mesh, depth=dims.depth)
+    pv, pv_basis = payload_volume_for(goal.payload_kg, goal.purpose,
+                                      payload_volume)
+    space_ok = pv <= box.volume
+    maxbox_report = {
+        "length": box.length, "width": box.width, "height": box.height,
+        "volume": box.volume, "payload_volume": pv,
+        "volume_basis": pv_basis,
+        "margin_ratio": (box.volume - pv) / pv if pv > 0 else float("inf"),
+        "note": "내부 구조물(모터·배터리 자리) 미차감 — 비보수적 (스펙 §5)",
+    }
+
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
 
@@ -200,7 +218,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
             "spiral_iterations": iteration,
         },
         "coefficients": dataclasses.asdict(coeffs),
-        "passed": hydro.passed,
+        "maxbox": maxbox_report,
+        "checks_space": bool(space_ok),
+        "passed": bool(hydro.passed and space_ok),
         "mesh_file": mesh_file,
     }
     with open(out / "report.json", "w") as f:
@@ -253,7 +273,14 @@ def _print_summary(report: dict) -> None:
     stable = "안정" if c["straight_line_stable"] else "불안정"
     print(f"동역학 계수     : 횡 부가질량 {c['yv_dot']:.0f} kg · "
           f"직진 {stable} · ⚠ 대형선 회귀 외삽")
-    print(f"필터 판정       : {h['checks']} → "
+    mb = report["maxbox"]
+    print(f"탑재 공간 (#27) : MaxBox {mb['length']:.2f}×{mb['width']:.2f}×"
+          f"{mb['height']:.2f} m = {mb['volume']:.3f} m³ vs 짐 "
+          f"{mb['payload_volume']:.3f} m³ ({mb['volume_basis']}) → "
+          f"{'들어감' if report['checks_space'] else '공간 부족 ✗'}"
+          f" (여유 {mb['margin_ratio']:+.0%})")
+    print(f"필터 판정       : {h['checks']} + "
+          f"{{'payload_space': {report['checks_space']}}} → "
           f"{'통과' if report['passed'] else '불합격'}")
     print("=" * 56)
 
@@ -273,6 +300,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--endurance", type=float, default=None,
                         help="항속시간 [h] (생략 시 기본값 — 활주형은 "
                              "전력 소모가 커서 짧게 잡아야 배터리가 가벼움)")
+    parser.add_argument("--payload-volume", type=float, default=None,
+                        help="짐 부피 [m³] 직접 입력 (생략 시 용도별 "
+                             "화물 밀도 개략 가정으로 무게→부피 환산)")
     args = parser.parse_args(argv)
 
     # 3입력 UX (#25 오너 제안): 속도 생략 시 용도가 결정
@@ -295,7 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         goal_kwargs["endurance_h"] = args.endurance
     goal = GoalSpec(**goal_kwargs)
     try:
-        report = run_pipeline(goal, args.out, loa=args.loa)
+        report = run_pipeline(goal, args.out, loa=args.loa,
+                              payload_volume=args.payload_volume)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:
