@@ -28,6 +28,28 @@ def test_clipping():
     assert wave_ratio(1.0, b=+5.0) == 1.5     # 상한
 
 
+def test_reevaluate_conserves_friction(tmp_path):
+    """보정은 조파만 깎는다: 보정 전저항 = rf + rw×ratio 폐합."""
+    from src.cfd.calibration import reevaluate_pareto
+    df_in = pd.DataFrame([
+        {"loa": 3.0, "lb": 4.0, "bt": 1.6, "cb": 0.444,
+         "resistance_n": 10.0, "total_mass_kg": 100.0,
+         "stability_margin": 0.1, "feasible": True},
+        {"loa": 3.0, "lb": 10.0, "bt": 1.6, "cb": 0.444,
+         "resistance_n": 8.0, "total_mass_kg": 120.0,
+         "stability_margin": 0.1, "feasible": True},
+    ])
+    csv = tmp_path / "pareto.csv"
+    df_in.to_csv(csv, index=False)
+    out = reevaluate_pareto(csv, b=-1.6, speed=1.2)
+    for _, row in out.iterrows():
+        assert row.resistance_corrected == pytest.approx(
+            row.rf_orig + row.rw_orig * row.ratio, rel=1e-6)
+    # 통통할수록(B/L↑) ratio↓
+    assert out.iloc[0]["ratio"] < out.iloc[1]["ratio"]
+    assert set(out.columns) >= {"pareto_before", "pareto_after"}
+
+
 def test_ratios_from_labels_pairs_modes():
     df = pd.DataFrame([
         {"case_name": "wigley_lb4_simple_1.85ms", "cfd_pressure_n": 4.0,
