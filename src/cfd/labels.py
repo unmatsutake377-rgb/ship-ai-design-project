@@ -14,7 +14,9 @@ from src.cfd.result_parser import CfdResult
 
 
 def append_label(csv_path: Path, case_name: str, speed: float, draft: float,
-                 result: CfdResult, empirical: dict) -> pd.DataFrame:
+                 result: CfdResult, empirical: dict,
+                 extra: dict | None = None) -> pd.DataFrame:
+    """extra: 추가 열 (예: loa_m/beam_m — 보정 계수의 설명변수, 능동학습)."""
     row = {
         "case_name": case_name, "speed_ms": speed, "draft_m": draft,
         "cfd_total_n": result.drag_total_n,
@@ -24,6 +26,8 @@ def append_label(csv_path: Path, case_name: str, speed: float, draft: float,
         "emp_rf_n": empirical["rf"], "emp_rw_n": empirical["rw"],
         "emp_total_n": empirical["total"],
     }
+    if extra:
+        row.update(extra)
     csv_path = Path(csv_path)
     if csv_path.exists():
         df = pd.read_csv(csv_path)

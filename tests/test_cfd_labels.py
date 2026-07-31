@@ -31,3 +31,11 @@ def test_different_cases_accumulate(tmp_path):
     append_label(csv, "wigley_sp", 1.5, 0.25, R1, EMP)
     df = append_label(csv, "wigley_if", 1.5, 0.25, R2, EMP)
     assert len(df) == 2
+
+
+def test_extra_columns_stored(tmp_path):
+    csv = tmp_path / "cfd_labels.csv"
+    df = append_label(csv, "wigley_lb4_simple", 1.85, 0.47, R1, EMP,
+                      extra={"loa_m": 3.0, "beam_m": 0.75})
+    assert df.iloc[0]["loa_m"] == 3.0
+    assert df.iloc[0]["beam_m"] == 0.75
