@@ -305,7 +305,8 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
       <kDotP>0</kDotP>
       <mDotQ>0</mDotQ>
       <nDotR>0</nDotR>
-      <xU>{-c['xu']:.4f}</xU>
+      <xU>{-0.2 * report['resistance']['total'] / max(report['goal']['target_speed_ms'], 1e-6):.4f}</xU>
+      <xUabsU>{-0.8 * report['resistance']['total'] / max(report['goal']['target_speed_ms'], 1e-6) ** 2:.4f}</xUabsU>
       <yV>{-c['yv']:.4f}</yV>
       <zW>{-vp['z_damping']:.4f}</zW>
       <kP>{-vp['k_damping']:.4f}</kP>

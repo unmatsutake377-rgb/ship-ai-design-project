@@ -120,6 +120,17 @@ def test_sdf_mesh_mode_envelope_box_buoyancy(report_and_dir, tmp_path):
     # 부가질량 0 (dartsim 수치 폭발 회피 — 감쇠만), 감쇠는 음수 조립
     assert hydro_m[0].find("zDotW").text.strip() == "0"
     assert float(hydro_m[0].find("zW").text) < 0
+    # 항력 2차항 수술 (2026-08-03, 활주 스텝 실험의 처방): 선형 20% +
+    # 제곱 80%, 두 항 모두 실제 저항 R에 앵커 — 목표속도에서 합이
+    # 정확히 R (검증점 보존이 수식으로 보장됨)
+    u_t = report["goal"]["target_speed_ms"]
+    r_t = report["resistance"]["total"]
+    xu = float(hydro_m[0].find("xU").text)
+    xuu = float(hydro_m[0].find("xUabsU").text)
+    assert xu == pytest.approx(-0.2 * r_t / u_t, rel=1e-3)
+    assert xuu == pytest.approx(-0.8 * r_t / u_t ** 2, rel=1e-3)
+    drag_at_target = -xu * u_t - xuu * u_t ** 2
+    assert drag_at_target == pytest.approx(r_t, rel=1e-3)
 
 
 def test_cli_writes_both_files(report_and_dir, tmp_path):
