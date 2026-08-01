@@ -1,0 +1,4 @@
+name,maker,category,mass_kg,volume_m3,density_kg_m3,source_url,source_grade,cross_verified,collected_date,notes
+RiverPro 1200 float package,Teledyne RDI,survey,17.0,0.192,88.5,https://www.teledynemarine.com/en-us/products/SiteAssets/RD%20Instruments/riverpro_1200_datasheet_2023.pdf,A,True,2026-08-02,공식 데이터시트: 플로트+계기+배터리 17kg · 120×80×20cm. 부피형 극단 — 플로트 시스템은 짐이라기보다 예인체지만 갑판 적재 시 부피 참고
+Lithium-ion Battery 14.8V 15.6Ah,Blue Robotics,survey,1.163,0.000631,1843.0,https://bluerobotics.com/store/comm-control-power/powersupplies-batteries/battery-li-4s-15-6ah/,A,True,2026-08-02,공식 스펙 1163g · Ø74.2×146mm 원통 부피 계산. 밀도형 극단 (물의 1.8배)
+Ping360 Scanning Sonar,Blue Robotics,survey,0.510,,,https://bluerobotics.com/store/sonars/scanning-sonars/ping360-sonar-r1-rp/,A,True,2026-08-02,공식 중량 510g(케이블 포함) — 치수는 페이지 미기재라 밀도 계산 보류 (도면 확보 시 갱신)

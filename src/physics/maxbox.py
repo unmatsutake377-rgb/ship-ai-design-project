@@ -18,11 +18,12 @@ from dataclasses import dataclass
 import numpy as np
 import trimesh
 
-# 용도별 화물 밀도 [kg/m³] — 개략 가정 (명명 상수, 실측 근거 없음 #17).
-# survey/patrol 600: 계측장비·배터리·윈치는 밀도 높은 부류 (배터리
-# ~2000, 전자장비 ~500-1000). workboat 400: 갑판 자재·공구는 부피형.
-# 일반 화물 적부율(stowage factor) 감각 1.5~3 m³/t = 333~667 kg/m³
-# 대역 안에서 방향만 맞춘 값 — 실측 수집(#17) 전까지 개략.
+# 용도별 화물 밀도 [kg/m³] — 개략 대표값 (명명 상수).
+# 실측 수집(2026-08-02, data/payload_items.csv): 실제 조사 화물의
+# 밀도는 88.5(플로트 패키지) ~ 1,843(리튬 배터리) kg/m³ — **21배 폭**.
+# 단일 밀도로 짐 전체를 대표하는 것 자체가 거친 모형임이 실측으로
+# 확인됨 → 프리셋은 "중간 대표값"이고, 부피가 중요한 사용자는
+# --payload-volume 직접 입력이 정도(正道) (CLI 도움말에도 안내).
 PAYLOAD_DENSITY = {"survey": 600.0, "patrol": 600.0, "workboat": 400.0}
 
 
