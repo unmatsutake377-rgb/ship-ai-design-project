@@ -193,6 +193,22 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "note": "내부 구조물(모터·배터리 자리) 미차감 — 비보수적 (스펙 §5)",
     }
 
+    # 조종성 지표 (민첩성 — 오너 발견의 정량화, 2026-08-02):
+    # "충분하면 됨" 결정 → 문턱 표기만 (경고 수준, 필터 아님)
+    from src.physics.agility import agility_metrics
+    from src.sim_adapters.python_sim import THRUSTER_SEP_OVER_B
+
+    ag = agility_metrics(
+        izz_total=weights.izz + coeffs.nr_dot,
+        m_x=weights.total_mass + coeffs.xu_dot,
+        yv=abs(coeffs.yv), nv=abs(coeffs.nv), nr=abs(coeffs.nr),
+        thrust_max=float(motors.motor["thrust_max_n"]),
+        thruster_sep=THRUSTER_SEP_OVER_B * dims.beam,
+        speed=goal.target_speed_ms, loa=dims.loa)
+    agility_report = {**dataclasses.asdict(ag),
+                      "note": "IMO 5L 기준은 대형선 외삽 + Clarke 계수 "
+                              "외삽 (이중 외삽) — 경고 표기용, 필터 아님"}
+
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
 
@@ -219,6 +235,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         },
         "coefficients": dataclasses.asdict(coeffs),
         "maxbox": maxbox_report,
+        "agility": agility_report,
         "checks_space": bool(space_ok),
         "passed": bool(hydro.passed and space_ok),
         "mesh_file": mesh_file,
@@ -273,6 +290,15 @@ def _print_summary(report: dict) -> None:
     stable = "안정" if c["straight_line_stable"] else "불안정"
     print(f"동역학 계수     : 횡 부가질량 {c['yv_dot']:.0f} kg · "
           f"직진 {stable} · ⚠ 대형선 회귀 외삽")
+    ag = report["agility"]
+    if ag["coupled_unstable"]:
+        print("조종성(참고)   : 방향 불안정 속도역 — 정상 선회 한계 없음 "
+              "(직진 유지가 과제인 배)")
+    else:
+        print(f"조종성(참고)   : 선회지름 ≈ {ag['diameter_over_l']:.1f}L "
+              f"(IMO 대형선 기준 5L "
+              f"{'이내 ✓' if ag['within_imo'] else '초과 ⚠'} — 외삽 주의)"
+              f" · 반응 {ag['nomoto_t']:.1f}s")
     mb = report["maxbox"]
     print(f"탑재 공간 (#27) : MaxBox {mb['length']:.2f}×{mb['width']:.2f}×"
           f"{mb['height']:.2f} m = {mb['volume']:.3f} m³ vs 짐 "
