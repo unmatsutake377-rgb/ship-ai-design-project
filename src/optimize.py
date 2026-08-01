@@ -89,7 +89,8 @@ def optimize_design(goal: GoalSpec, pop_size: int = 24, n_gen: int = 20,
     return df.reset_index(drop=True)
 
 
-def plot_pareto(df: pd.DataFrame, path: str | Path) -> None:
+def plot_pareto(df: pd.DataFrame, path: str | Path,
+                star_idx: int | None = None) -> None:
     import matplotlib
     matplotlib.use("Agg")
     matplotlib.rcParams["font.family"] = ["AppleGothic", "DejaVu Sans"]
@@ -100,6 +101,12 @@ def plot_pareto(df: pd.DataFrame, path: str | Path) -> None:
     sc = ax.scatter(df["resistance_n"], df["total_mass_kg"],
                     c=df["stability_margin"], cmap="viridis", s=60,
                     edgecolor="#334155", linewidth=0.5)
+    if star_idx is not None:
+        r = df.loc[star_idx]
+        ax.scatter([r["resistance_n"]], [r["total_mass_kg"]], marker="*",
+                   s=380, color="#f59e0b", edgecolor="#7c2d12",
+                   linewidth=1.0, zorder=5, label="용도 추천 ★")
+        ax.legend()
     fig.colorbar(sc, label="안정여유 min(GM/B−0.04, 0.40−GM/B)")
     ax.set_xlabel("전저항 @ 목표속도 [N]")
     ax.set_ylabel("전체 중량 [kg]")
@@ -120,10 +127,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pop", type=int, default=24)
     parser.add_argument("--gen", type=int, default=20)
     parser.add_argument("--out", default="outputs/pareto")
+    parser.add_argument("--purpose", default="survey",
+                        help="용도 — 추천 가중 프리셋 선택 (#25 2단계)")
     args = parser.parse_args(argv)
 
     goal = GoalSpec(target_speed_ms=args.speed, payload_kg=args.payload,
-                    purpose="survey", endurance_h=args.endurance)
+                    purpose=args.purpose, endurance_h=args.endurance)
     print(f"NSGA-II 시작: 개체 {args.pop} × 세대 {args.gen} "
           f"(평가 ~{args.pop * args.gen}회, 물리 직접 — 수 분 소요)")
     df = optimize_design(goal, pop_size=args.pop, n_gen=args.gen, verbose=True)
@@ -131,7 +140,17 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     df.to_csv(out / "pareto.csv", index=False)
-    plot_pareto(df, out / "pareto.png")
+
+    # 용도 추천 (#25 2단계): 프리셋 + ELO 취향 혼합 가중의 1등에 ★
+    from src.ai.recommend import recommend
+
+    star, w, why = recommend(df, args.purpose)
+    plot_pareto(df, out / "pareto.png", star_idx=star)
+    r = df.loc[star]
+    print(f"★ 추천: L={r['loa']:.2f} m, L/B={r['lb']:.1f} — "
+          f"저항 {r['resistance_n']:.1f} N / 중량 {r['total_mass_kg']:.0f} kg"
+          f" / 안정여유 {r['stability_margin']:.3f}")
+    print(f"  근거: {why}")
 
     # 상위 후보 3척 STL (ELO 쌍대비교용): 저항 최소·중량 최소·안정여유 최대
     picks = {
