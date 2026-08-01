@@ -174,7 +174,68 @@ def race_gif(results: list[SimResult], dims_list: list[MainDimensions],
                 r_texts[j].set_text(f"물의 저항 ← {res_n:.1f} N")
         return trails + hulls
 
-    anim = animation.FuncAnimation(fig, update, frames=frames)
+    # 끝 프레임 1.5초 정지 (오너 피드백: 마지막 완주 표시가 안 보였음)
+    anim = animation.FuncAnimation(
+        fig, lambda k: update(min(k, frames - 1)),
+        frames=frames + int(1.5 * fps))
+    anim.save(path, writer=animation.PillowWriter(fps=fps))
+    plt.close(fig)
+    return Path(path)
+
+
+def turning_gif(vessels: list, dims_list: list[MainDimensions],
+                labels: list[str], path: str | Path,
+                fps: int = 15, duration_s: float = 5.0) -> Path:
+    """선회 시연 비교 GIF — 민첩성의 체감판 (오너: "영상이 중요해").
+
+    직진 가속 후 전타 고정 (좌 0 / 우 최대) — 각자의 물리로 원을
+    그림. 지표(agility_metrics)가 예측한 선회지름과 같은 방정식이라
+    영상 = 지표의 눈 버전."""
+    from src.sim_adapters.python_sim import step
+
+    trajs = []
+    for v in vessels:
+        state = np.zeros(6)
+        for _ in range(400):
+            state = step(v, state, v.thrust_max, v.thrust_max, 0.05)
+        state[0] = state[1] = 0.0            # 선회 시작점을 원점으로
+        xs, ys = [], []
+        for _ in range(3000):
+            state = step(v, state, v.thrust_max, 0.0, 0.05)
+            xs.append(state[0])
+            ys.append(state[1])
+        trajs.append((np.array(xs), np.array(ys), state))
+
+    lim = max(max(np.abs(t[0]).max(), np.abs(t[1]).max())
+              for t in trajs) * 1.15 + 1
+    fig, axes = plt.subplots(1, 2, figsize=(11, 6), dpi=90)
+    steps_total = len(trajs[0][0])
+    frames = max(2, int(duration_s * fps))
+    stride = max(1, steps_total // frames)
+
+    trails, boats = [], []
+    for ax, (xs, ys, st), dims, label in zip(axes, trajs, dims_list, labels):
+        d_sim = 0.5 * ((xs[-1500:].max() - xs[-1500:].min())
+                       + (ys[-1500:].max() - ys[-1500:].min()))
+        ax.set_title(f"{label}\n선회지름 ≈ {d_sim:.1f} m "
+                     f"= {d_sim / dims.loa:.1f}×배길이", fontsize=11)
+        ax.set_xlim(-lim, lim)
+        ax.set_ylim(-lim, lim)
+        ax.set_aspect("equal")
+        ax.grid(alpha=0.2)
+        trails.append(ax.plot([], [], "-", color="#0f766e", lw=1.4)[0])
+        boats.append(ax.plot([], [], "o", color="#dc2626", ms=9)[0])
+
+    def update(k):
+        i = min(k * stride, steps_total - 1)
+        for (xs, ys, _), trail, boat in zip(trajs, trails, boats):
+            trail.set_data(xs[: i + 1], ys[: i + 1])
+            boat.set_data([xs[i]], [ys[i]])
+        return trails + boats
+
+    anim = animation.FuncAnimation(
+        fig, lambda k: update(min(k, frames - 1)),
+        frames=frames + int(1.5 * fps))
     anim.save(path, writer=animation.PillowWriter(fps=fps))
     plt.close(fig)
     return Path(path)
@@ -202,4 +263,6 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
     g1 = rotating_gif(meshes, list(labels), out / "duel_shape.gif")
     g2 = race_gif(results, dims_list, list(labels), wps,
                   out / "duel_race.gif", vessels=vessels)
-    return g1, g2
+    g3 = turning_gif(vessels, dims_list, list(labels),
+                     out / "duel_turning.gif")
+    return g1, g2, g3
