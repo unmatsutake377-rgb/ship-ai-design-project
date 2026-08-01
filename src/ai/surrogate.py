@@ -70,11 +70,18 @@ def _build_net(n_in: int = 45):
 
 
 def train_surrogate(x: np.ndarray, y_feas: np.ndarray, y_obj: np.ndarray,
-                    epochs: int = 400, seed: int = 0,
-                    lr: float = 1e-3) -> tuple[SurrogateModel, dict]:
+                    epochs: int = 2000, seed: int = 0,
+                    lr: float = 1e-3, patience: int = 5,
+                    check_every: int = 50) -> tuple[SurrogateModel, dict]:
     """학습 + 검증 지표. y_obj는 infeasible 행에 NaN 허용 (마스킹됨).
 
-    반환 metrics: {n_train, n_val, feas_accuracy, obj_r2: [3개]}.
+    조기 종료 (2026-08-02 에포크 스윕의 처방): check_every마다 검증
+    손실을 재고, patience번 연속 나빠지면 멈추고 **최고 성적 시점의
+    가중치로 복원** — "더 가르치면 암기(과적합)를 시작한다"의 자동
+    방지. epochs는 이제 상한일 뿐, 실제 멈춤은 검증이 결정.
+
+    반환 metrics: {n_train, n_val, feas_accuracy, obj_r2: [3개],
+    stopped_epoch, best_val_loss}.
     """
     import torch
     import torch.nn as nn
@@ -105,7 +112,18 @@ def train_surrogate(x: np.ndarray, y_feas: np.ndarray, y_obj: np.ndarray,
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     bce = nn.BCEWithLogitsLoss()
 
-    for _ in range(epochs):
+    tv = torch.tensor(val_idx, device=dev)
+
+    def _val_loss() -> float:
+        with torch.no_grad():
+            logit, obj = net(tx[tv])
+            lf = bce(logit, tf[tv])
+            se = ((obj - ty[tv]) ** 2).mean(dim=1, keepdim=True)
+            lo = (se * tm[tv]).sum() / tm[tv].sum().clamp(min=1.0)
+            return float(lf + lo)
+
+    best_loss, best_state, bad, stopped = float("inf"), None, 0, epochs
+    for epoch in range(1, epochs + 1):
         opt.zero_grad()
         logit, obj = net(tx[tr])
         loss_f = bce(logit, tf[tr])
@@ -114,6 +132,20 @@ def train_surrogate(x: np.ndarray, y_feas: np.ndarray, y_obj: np.ndarray,
         loss_o = (se * tm[tr]).sum() / tm[tr].sum().clamp(min=1.0)
         (loss_f + loss_o).backward()
         opt.step()
+
+        if epoch % check_every == 0:
+            vl = _val_loss()
+            if vl < best_loss:
+                best_loss, bad = vl, 0
+                best_state = {k: v.detach().clone()
+                              for k, v in net.state_dict().items()}
+            else:
+                bad += 1
+                if bad >= patience:
+                    stopped = epoch
+                    break
+    if best_state is not None:
+        net.load_state_dict(best_state)   # 최고 성적 시점으로 복원
 
     model = SurrogateModel(net=net, x_mean=x_mean, x_std=x_std,
                            y_mean=y_mean, y_std=y_std)
@@ -132,5 +164,7 @@ def train_surrogate(x: np.ndarray, y_feas: np.ndarray, y_obj: np.ndarray,
         else:
             r2.append(float("nan"))
     metrics = {"n_train": int(len(train_idx)), "n_val": int(n_val),
-               "feas_accuracy": feas_acc, "obj_r2": r2}
+               "feas_accuracy": feas_acc, "obj_r2": r2,
+               "stopped_epoch": int(stopped),
+               "best_val_loss": float(best_loss)}
     return model, metrics

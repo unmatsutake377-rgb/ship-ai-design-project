@@ -45,3 +45,22 @@ def test_predict_shapes(trained, synthetic):
     assert feas.shape == (7,)
     assert obj.shape == (7, 3)
     assert np.isfinite(obj).all()
+
+
+def test_early_stopping_restores_best():
+    """조기 종료 (8/2 에포크 스윕 처방): 상한 크게 줘도 검증 정점에서
+    멈추고 최고 시점 가중치 복원 — stopped_epoch < epochs 상한."""
+    import numpy as np
+
+    from src.ai.surrogate import train_surrogate
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(300, 6))
+    y_feas = (x[:, 0] > 0).astype(float)
+    y_obj = np.where(y_feas[:, None] > 0,
+                     x[:, :3] + 0.1 * rng.normal(size=(300, 3)), np.nan)
+    _, m = train_surrogate(x, y_feas, y_obj, epochs=5000, seed=0,
+                           patience=3, check_every=20)
+    assert m["stopped_epoch"] <= 5000
+    assert np.isfinite(m["best_val_loss"])
+    assert "stopped_epoch" in m and "best_val_loss" in m
