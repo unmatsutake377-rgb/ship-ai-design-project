@@ -1,13 +1,27 @@
 FoamFile { version 2.0; format ascii; class dictionary; object snappyHexMeshDict; }
 castellatedMesh true;  snap true;  addLayers false;
-geometry { hull { type triSurfaceMesh; file "hull.stl"; } }
+geometry
+{
+    hull { type triSurfaceMesh; file "hull.stl"; }
+    // 수면 띠 (격자 3라운드): 파도는 수면 근처에만 있으니 이 상자만
+    // 세분 — 전역 refine보다 싸게 파도 해상도를 올린다
+    fsband
+    {
+        type searchableBox;
+        min ({{XMIN}} {{YMIN}} {{FS_ZMIN}});
+        max ({{XMAX}} {{YMAX}} {{FS_ZMAX}});
+    }
+}
 castellatedMeshControls
 {
     maxLocalCells 2000000;  maxGlobalCells 4000000;  minRefinementCells 0;
     nCellsBetweenLevels 3;
     features ();
     refinementSurfaces { hull { level (1 2); } }
-    refinementRegions {}
+    refinementRegions
+    {
+        fsband { mode inside; levels ((1e15 {{FS_LEVEL}})); }
+    }
     resolveFeatureAngle 30;
     locationInMesh ({{LOC_X}} {{LOC_Y}} {{LOC_Z}});
     allowFreeStandingZoneFaces true;

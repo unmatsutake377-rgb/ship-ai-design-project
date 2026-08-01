@@ -32,6 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--labels", default="data/cfd_labels.csv")
     parser.add_argument("--grid-factor", type=float, default=1.0,
                         help="격자 배율 (수렴 연구용) — 1.5면 칸 수 ~3.4배")
+    parser.add_argument("--fs-level", type=int, default=0,
+                        help="수면 띠 세분 레벨 (inter 전용) — 2면 띠 안 "
+                             "칸이 1/4 크기 (파도 해상도만 국소 강화)")
     args = parser.parse_args(argv)
 
     report_dir = Path(args.report)
@@ -41,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     name = f"{report_dir.name}_{args.mode}_{speed}ms"
     if args.grid_factor != 1.0:
         name += f"_g{args.grid_factor}"  # 격자별 라벨 분리 (수렴 비교용)
+    if args.fs_level > 0:
+        name += f"_fs{args.fs_level}"    # 수면 띠 케이스 분리
     case = Path(args.out) if args.out else Path("outputs/cfd_cases") / name
 
     if args.parse_only:
@@ -60,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"라벨 저장   : {args.labels}")
         return 0 if result.converged else 2
 
-    build_case(report_dir, case, args.mode, grid_factor=args.grid_factor)
+    build_case(report_dir, case, args.mode, grid_factor=args.grid_factor,
+               fs_level=args.fs_level)
     print(f"케이스 생성 완료: {case}")
     print("다음 단계 (Docker 실행 — 수십 분):")
     print(f"  cfd/docker/run_case.sh {case} {SOLVER[args.mode]}")

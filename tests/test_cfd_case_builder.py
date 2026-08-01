@@ -22,6 +22,27 @@ def test_domain_box_inter_has_air():
     assert b["ZMAX"] == pytest.approx(0.5 * 4.0)  # 자유수면: 공기층
 
 
+def test_fs_band_refinement_in_inter_case(tmp_path):
+    """수면 띠 국소 refine (격자 3라운드): fs_level>0이면 snappy에
+    수면 상자(fsband) 세분 지시가 들어가야 함."""
+    from src.cfd.case_builder import build_case
+    case = build_case(_fake_report_dir(tmp_path / "rep"),
+                      tmp_path / "case", mode="inter", fs_level=2)
+    snappy = (case / "system/snappyHexMeshDict").read_text()
+    assert "fsband" in snappy
+    assert "(1e15 2)" in snappy          # 띠 안은 레벨 2 (칸 1/4 크기)
+    # 띠는 수면(z=0) 대칭 ±0.05L = ±0.185
+    assert "-0.185" in snappy and "0.185" in snappy
+
+
+def test_fs_band_default_off(tmp_path):
+    """기본값 fs_level=0 — 기존 케이스와 동일 (레벨 0 = 세분 없음)."""
+    from src.cfd.case_builder import build_case
+    case = build_case(_fake_report_dir(tmp_path / "rep"),
+                      tmp_path / "case", mode="inter")
+    assert "(1e15 0)" in (case / "system/snappyHexMeshDict").read_text()
+
+
 def test_domain_box_grid_factor_scales_cells():
     """격자 수렴 연구용: 배율 1.5 → 각 방향 셀 수 1.5배 (칸 수 ~3.4배)."""
     base = domain_box(4.0, mode="inter")
