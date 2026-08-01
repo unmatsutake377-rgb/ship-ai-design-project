@@ -116,7 +116,10 @@ def test_formerly_rejected_speed_now_reaches_physics(tmp_path):
     err = result.stdout + result.stderr
     assert "추후 지원" not in err and "미지원" not in err
     if result.returncode == 3:  # 정직한 거절 — 사유는 물리/카탈로그
-        assert ("모터" in err or "추력" in err or "평형" in err)
+        # 카탈로그 확장(08-02, Riptide 2종)으로 모터 벽은 통과 —
+        # 이제 활주 평형(LCG-압력중심)까지 도달해 거절됨 (층 심화)
+        assert ("모터" in err or "추력" in err or "평형" in err
+                or "압력중심" in err or "LCG" in err)
     else:
         assert result.returncode in (0, 2)
 
