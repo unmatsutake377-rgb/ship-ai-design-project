@@ -44,6 +44,10 @@ def _inertia_triplet(report: dict) -> tuple[float, float, float]:
     ixx = mass * (KXX_OVER_B * d["beam"]) ** 2
     iyy = mass * (KYY_OVER_L * d["loa"]) ** 2
     izz = max(w["izz"], iyy)
+    # 상한도 필요 (활주 선체 실측, 2026-08-01): 폭이 좁으면 ixx가 작아
+    # ixx+iyy < izz가 될 수 있는데, 실물 질량 분포는 항상
+    # izz ≤ ixx+iyy (평면 판에서 등호) — 위반 시 Gazebo가 거부.
+    izz = min(izz, 0.999 * (ixx + iyy))
     return ixx, iyy, izz
 
 
@@ -167,6 +171,13 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
         #   Cb=1이라). 선체 실흘수·실유체력 재현은 부피 부력으로 불가 —
         #   B-3의 계수 기반 플러그인(hydrodynamics.yaml)이 담당할 과제.
         mesh_file = Path(mesh_path).name
+        # STL을 내보내기 폴더로 복사 — 상대 uri가 /sim 마운트에서 풀리게
+        # (미복사 시 'uri could not be resolved' 실측, 2026-08-01)
+        import shutil as _shutil
+
+        dst = Path(out_dir) / mesh_file
+        if Path(mesh_path).resolve() != dst.resolve():
+            _shutil.copy(mesh_path, dst)
         geom_xml = (f"<box><size>{d['loa']:.4f} {d['beam']:.4f} "
                     f"{d['depth']:.4f}</size></box>")
         # 링크 좌표계 = 부력 상자 중심 (collision 오프셋 0 — 오프셋을 주면

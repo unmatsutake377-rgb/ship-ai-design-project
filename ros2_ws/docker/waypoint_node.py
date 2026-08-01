@@ -61,7 +61,16 @@ class WaypointNode(Node):
         x, y, psi, u, r = self.state
 
         wx, wy = self.waypoints[self.wp_index]
-        if math.hypot(wx - x, wy - y) < cfg["accept_radius"]:
+        # 도달 판정 2중 (2026-08-02 활주 검증이 잡은 잠복 버그):
+        # 수용 반경 스침 + LOS 경로선 무한 연장 → 직진 폭주(1,265m 실측)
+        # — 종점 통과(진행 거리 > 구간 길이)도 도달로 취급
+        px0, py0 = self.prev_wp
+        alpha0 = math.atan2(wy - py0, wx - px0)
+        seg_len = math.hypot(wx - px0, wy - py0)
+        s_along = ((x - px0) * math.cos(alpha0)
+                   + (y - py0) * math.sin(alpha0))
+        if (math.hypot(wx - x, wy - y) < cfg["accept_radius"]
+                or s_along > seg_len):
             self.prev_wp = (wx, wy)
             self.wp_index += 1
             if self.wp_index >= len(self.waypoints):

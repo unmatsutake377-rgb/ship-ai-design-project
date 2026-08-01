@@ -214,7 +214,14 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
         wx, wy = waypoints[wp_index]
         x, y, psi, u, v, r = state
 
-        if math.hypot(wx - x, wy - y) < accept:
+        # 도달 판정 2중 (2026-08-02 활주 검증이 잡은 잠복 버그):
+        # ① 수용 반경 안 ② 종점 통과 — 빠른 배가 반경을 스치면 LOS가
+        # 경로선을 무한 연장해 직진 폭주 (Gazebo 실측 1,265m 이탈).
+        px, py = prev_wp
+        alpha = math.atan2(wy - py, wx - px)
+        seg_len = math.hypot(wx - px, wy - py)
+        s_along = (x - px) * math.cos(alpha) + (y - py) * math.sin(alpha)
+        if math.hypot(wx - x, wy - y) < accept or s_along > seg_len:
             prev_wp = (wx, wy)
             wp_index += 1
             result.waypoints_reached = wp_index
