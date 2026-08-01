@@ -68,6 +68,26 @@ def test_michell_low_froude_vanishes():
     assert r_low < 0.2 * r_ref
 
 
+def test_michell_ultra_low_froude_is_zero():
+    """극저속(Fn<0.1) 가드 — 수치 폭주 지뢰의 회귀 시험 (2026-08-02).
+
+    Michell 적분은 Fn→0에서 피적분 함수가 무한 진동해 격자가 못 따라감
+    — Fn 0.02에서 107 N짜리 쓰레기값이 나와 시뮬 배가 '가짜 평형'에
+    갇혔던 실측 사고. 물리적으로 이 영역 조파저항은 무시 가능 → 0."""
+    r = michell_wave_resistance(**WIGLEY, speed=_fn_to_speed(0.02))
+    assert r == 0.0
+    # 가드 경계 위는 정상 양수
+    assert michell_wave_resistance(**WIGLEY, speed=_fn_to_speed(0.12)) > 0
+
+
+def test_resistance_curve_monotone_for_sim():
+    """시뮬용 저항곡선(0~2 m/s)이 단조 증가 — 가짜 평형 재발 방지."""
+    speeds = np.linspace(0.05, 2.0, 12)
+    rs = [michell_wave_resistance(**WIGLEY, speed=float(s)) +
+          frictional_resistance(float(s), 4.0, 3.0) for s in speeds]
+    assert all(b >= a for a, b in zip(rs, rs[1:]))
+
+
 def test_michell_magnitude_band():
     """표준 Wigley Fn=0.316: 자릿수 검증 밴드 (문헌 Cw ~1e-3 대역).
 

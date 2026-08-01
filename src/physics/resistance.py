@@ -18,6 +18,7 @@ from src.physics.hydrostatics import immersed_mesh, waterplane_properties
 RHO_SEAWATER = 1025.0
 NU_SEAWATER = 1.19e-6   # 해수 15°C 동점성계수 [m²/s]
 G = 9.81
+FN_MICHELL_MIN = 0.10  # 극저속 가드 — 이 아래 Michell은 수치 폭주 (실측)
 FORM_FACTOR = 0.10      # 형상계수 k (세장 선형 개략, 점성압력저항 보정)
 
 
@@ -58,6 +59,11 @@ def michell_wave_resistance(loa: float, beam: float, draft_design: float,
     일반화 Wigley 분리형 y=(B/2)·f(x)·h(z) → x/z 적분 분리.
     draft: 실제(평형) 흘수 — 침수 부분만 적분.
     """
+    # 극저속 가드 (2026-08-02 실측 사고): Fn→0에서 피적분 함수가 무한
+    # 진동 → 격자 미달로 쓰레기값 (Fn 0.02에서 107 N — 시뮬 배가 가짜
+    # 평형에 갇힘). 이 영역 조파저항은 물리적으로 무시 가능 → 0.
+    if speed / math.sqrt(G * loa) < FN_MICHELL_MIN:
+        return 0.0
     k0 = G / speed ** 2
 
     # x 방향: f'(x) = -(2/L)·n·|u|^(n-1)·sign(u), 반폭 계수 B/2 포함
@@ -133,6 +139,9 @@ def michell_wave_resistance_mesh(mesh: trimesh.Trimesh, draft: float,
     검증: 같은 Wigley 선체에서 해석형 michell_wave_resistance와 교차 대조
     (테스트 test_mesh_michell_matches_analytic_wigley).
     """
+    loa = float(mesh.extents[0])
+    if speed / math.sqrt(G * loa) < FN_MICHELL_MIN:
+        return 0.0   # 극저속 가드 — 해석형과 동일 (수치 폭주 방지)
     xs, zs, y_half = hull_offsets(mesh, draft, n_x=n_x, n_z=n_z)
     dydx = np.gradient(y_half, xs, axis=0)          # (n_x, n_z)
     depth_below = draft - zs                          # (n_z,)
