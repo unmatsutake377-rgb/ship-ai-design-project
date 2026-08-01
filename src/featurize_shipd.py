@@ -30,7 +30,15 @@ from src.physics.resistance import wetted_surface
 
 TARGET_LOA = 3.0                      # 선별과 동일 상사 기준
 DRAFT_FRACS = (0.3, 0.5, 0.7)         # 기준 흘수 3단 (형심 대비)
-N_FEATURES = 22
+N_FEATURES = 30
+
+# v2 (2026-08-01 2회차): 저항·안정 라벨용 8종 추가 — 평형 흘수 근사
+# 기준 배수량. 라벨 생성 조건(payload 100 kg 나선 수렴 전체 중량
+# ~120-200 kg)의 중앙 개략값. 실무 근거 아님 — 명명 상수.
+REF_MASS_KG = 150.0
+RHO = 1025.0
+KB_FRAC = 0.53    # 상자~V형 사이 개략 (KB ≈ 0.5~0.55 T)
+KG_FRAC = 0.65    # 중량 모델의 KG/D 개략 — 라벨 파이프라인과 동일 계보
 
 FEATURE_NAMES = (
     ["beam", "depth", "vol_total", "area_total", "fill", "l_over_b",
@@ -38,6 +46,9 @@ FEATURE_NAMES = (
     + [f"{name}_t{int(f*100)}" for f in DRAFT_FRACS
        for name in ("vol", "wet", "awp", "ixx")]
     + ["cm", "cp", "lcb_frac"]
+    # v2: 평형 자세 5 + 안정 프록시 1 + 입사각 1 + 능력비 1
+    + ["t_eq", "wet_eq", "awp_eq", "ixx_eq", "bm_eq",
+       "gmb_proxy", "entrance_deg", "capacity_ratio"]
 )
 
 
@@ -89,7 +100,74 @@ def hull_features(mesh: trimesh.Trimesh) -> np.ndarray:
         feats += [cm, cp, lcb]
     except Exception:
         feats += [np.nan] * 3
+
+    # ---- v2: 평형 자세 특징 (저항·안정 라벨의 흘수 불일치 해소) ----
+    try:
+        v_ref = REF_MASS_KG / RHO
+        ts = np.array([f * depth for f in DRAFT_FRACS])
+        vols = np.array(feats[7:19:4])       # vol_t30/50/70
+        wets = np.array(feats[8:19:4])
+        awps = np.array(feats[9:20:4])
+        ixxs = np.array(feats[10:20:4])
+        # V(T) 3점 선형 보간·외삽의 역함수로 t*. np.interp는 범위 밖을
+        # 못박아(외삽 안 함) 평형 흘수가 0.3D 아래인 다수 선체가 전부
+        # 0.3D로 뭉개짐 — 끝 구간 기울기로 직접 외삽 (바지선은 V(T)가
+        # 선형이라 이 방식이 해석 정답과 정확히 일치)
+        t_eq = _interp_extrap(v_ref, vols, ts)
+        wet_eq = _interp_extrap(t_eq, ts, wets)
+        awp_eq = _interp_extrap(t_eq, ts, awps)
+        ixx_eq = _interp_extrap(t_eq, ts, ixxs)
+        bm_eq = ixx_eq / v_ref
+        gmb = (KB_FRAC * t_eq + bm_eq - KG_FRAC * depth) / beam
+        capacity = float(vols[-1]) / v_ref   # <1이면 만재 불가 경향
+        feats += [t_eq, wet_eq, awp_eq, ixx_eq, bm_eq, gmb,
+                  _entrance_angle_deg(mesh, min(t_eq, 0.9 * depth)),
+                  capacity]
+    except Exception:
+        feats += [np.nan] * 8
     return np.array(feats, dtype=np.float64)
+
+
+def _interp_extrap(x: float, xs, ys) -> float:
+    """단조 xs 기준 선형 보간 + 양끝 기울기 외삽 (np.interp는 못박음)."""
+    xs, ys = np.asarray(xs, float), np.asarray(ys, float)
+    if x <= xs[0]:
+        slope = (ys[1] - ys[0]) / (xs[1] - xs[0])
+        return float(ys[0] + slope * (x - xs[0]))
+    if x >= xs[-1]:
+        slope = (ys[-1] - ys[-2]) / (xs[-1] - xs[-2])
+        return float(ys[-1] + slope * (x - xs[-1]))
+    return float(np.interp(x, xs, ys))
+
+
+def _entrance_angle_deg(mesh: trimesh.Trimesh, draft: float) -> float:
+    """수선 입사 반각 [도] — 뱃머리가 물을 가르는 각도 (조파저항 주인).
+
+    수선(흘수 높이) 반폭 곡선의 앞쪽 10% 구간 기울기 atan(Δ반폭/Δx).
+    상자(뭉툭)는 90°, 날씬한 배일수록 작다."""
+    from src.physics.resistance import hull_offsets
+
+    xs, zs, y_half = hull_offsets(mesh, draft, n_x=40, n_z=8)
+    wl = y_half[:, -1]                       # 수선 근처 반폭
+    span = float(xs[-1] - xs[0])
+    margin = 1e-4 * span                     # hull_offsets의 끝단 여백
+    n_bow = max(2, len(xs) // 10)
+
+    def end_angle(seg_x, seg_y):
+        """끝점(반폭 0 가상 측점 포함) 구간의 최대 기울기 각도.
+
+        뭉툭한 상자는 끝점→첫 측점에서 반폭이 수직 점프 → ~90°,
+        매끈한 배는 접선 기울기 → 작다. 구간 최대를 쓰는 이유:
+        평균(현 기울기)은 뭉툭함을 희석함."""
+        px = np.concatenate([[seg_x[0] - margin], seg_x])
+        py = np.concatenate([[0.0], seg_y])
+        dx = np.diff(px)
+        dy = np.abs(np.diff(py))
+        return float(np.degrees(np.arctan2(dy, dx).max()))
+
+    a_fwd = end_angle(xs[:n_bow], wl[:n_bow])
+    a_aft = end_angle((xs[-n_bow:])[::-1] * -1, wl[-n_bow:][::-1])
+    return min(a_fwd, a_aft)
 
 
 def featurize_all(out_path: Path, limit: int | None = None,

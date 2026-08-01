@@ -62,7 +62,8 @@ def virtual_screen(goal: GoalSpec, target_loa: float,
     x, y_feas, y_obj, known_ids = load_training_data(screen_csv, features)
     model, metrics = train_surrogate(x, y_feas, y_obj,
                                      epochs=epochs, seed=seed)
-    metrics["input"] = ("features22" if features is not None else "raw45")
+    metrics["input"] = (f"features{x.shape[1]}" if features is not None
+                        else "raw45")
     if verbose:
         print(f"대리모델 지표: {metrics}")
 

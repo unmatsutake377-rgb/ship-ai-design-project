@@ -16,7 +16,34 @@ def barge_feats():
 
 
 def test_feature_count():
-    assert len(FEATURE_NAMES) == N_FEATURES == 22
+    assert len(FEATURE_NAMES) == N_FEATURES == 30
+
+
+def test_barge_v2_equilibrium_features(barge_feats):
+    """v2: 바지선은 V(T)=L·B·T 선형 → 평형 흘수 해석 정답.
+
+    t* = W/(ρ·L·B) = 150/(1025·4·1) = 0.0366 m (외삽 구간 — np.interp
+    못박음 버그의 회귀 시험). BM* = (L·B³/12)/V*, 상자 입사각 = 90°."""
+    f = barge_feats
+    t_star = 150.0 / (1025.0 * L * B)
+    assert f["t_eq"] == pytest.approx(t_star, rel=0.03)
+    assert f["awp_eq"] == pytest.approx(L * B, rel=0.03)
+    assert f["bm_eq"] == pytest.approx((L * B**3 / 12) / (150.0 / 1025.0),
+                                       rel=0.06)
+    assert f["entrance_deg"] == pytest.approx(90.0, abs=3.0)
+    assert f["capacity_ratio"] == pytest.approx(
+        (L * B * 0.7 * D) / (150.0 / 1025.0), rel=0.05)
+
+
+def test_wigley_entrance_sharper_than_barge():
+    """날씬한 Wigley 입사각 < 뭉툭한 상자 90° — 물리 경향."""
+    from src.ai.hull_generator import generate_hull_mesh
+    from src.core.types import MainDimensions
+
+    dims = MainDimensions(loa=3.0, beam=0.75, depth=0.5,
+                          draft_design=0.3, cb=0.444)
+    f = dict(zip(FEATURE_NAMES, hull_features(generate_hull_mesh(dims))))
+    assert f["entrance_deg"] < 45.0
 
 
 def test_barge_global_features(barge_feats):
