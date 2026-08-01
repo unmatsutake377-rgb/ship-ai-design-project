@@ -26,8 +26,13 @@ def expected_score(rating_a: float, rating_b: float) -> float:
 
 
 def record_comparison(winner_id: str, loser_id: str,
-                      csv_path: str | Path) -> None:
-    """비교 결과 1건 기록 (append-only)."""
+                      csv_path: str | Path, reason: str = "") -> None:
+    """비교 결과 1건 기록 (append-only).
+
+    reason: 선택 이유 (오너 제안 2026-08-02 — "수정 피드백을 같이
+    적어주면 도움 되나?"에서 채택). 이유가 있으면 ① 오클릭 구분
+    ② 취향의 구조가 데이터화 ③ 대결 조건의 결함(제어 거동 혼입 등)
+    발견 — 세 몫을 한다. 점수 계산에는 미사용, 기록·분석용."""
     if winner_id == loser_id:
         raise ValueError(f"자기 자신과 비교 불가: {winner_id!r}")
     path = Path(csv_path)
@@ -36,9 +41,10 @@ def record_comparison(winner_id: str, loser_id: str,
     with path.open("a", newline="") as f:
         writer = csv.writer(f)
         if is_new:
-            writer.writerow(COLUMNS)
+            writer.writerow(COLUMNS + ["reason"])
         writer.writerow(
-            [winner_id, loser_id, datetime.now(timezone.utc).isoformat()]
+            [winner_id, loser_id, datetime.now(timezone.utc).isoformat(),
+             reason]
         )
 
 
