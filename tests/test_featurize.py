@@ -38,6 +38,15 @@ def test_barge_draft_features(barge_feats):
         assert f[f"ixx_t{frac}"] == pytest.approx(L * B**3 / 12, rel=0.05)
 
 
+def test_offcenter_barge_form_coefficients():
+    """x가 0~L 범위인 상자 (Ship-D 좌표 관례) — x=0 고정 절단이면
+    뱃머리 끝을 자르게 돼 NaN 나던 실측 버그의 회귀 시험."""
+    barge = trimesh.creation.box(bounds=[[0, -B / 2, 0], [L, B / 2, D]])
+    f = dict(zip(FEATURE_NAMES, hull_features(barge)))
+    assert f["cm"] == pytest.approx(1.0, rel=0.02)
+    assert f["cp"] == pytest.approx(1.0, rel=0.02)
+
+
 def test_barge_form_coefficients(barge_feats):
     f = barge_feats
     assert f["cm"] == pytest.approx(1.0, rel=0.02)   # 상자 단면 = 꽉 참

@@ -42,11 +42,15 @@ FEATURE_NAMES = (
 
 
 def _midship_area(submerged: trimesh.Trimesh) -> float:
-    """물속 부분 메쉬의 중앙(x=0) 단면적 — Cm의 분자.
+    """물속 부분 메쉬의 길이 중앙 단면적 — Cm의 분자.
 
     물속만 미리 잘라낸 메쉬를 받으므로 흘수 자르기가 불필요 —
-    면적은 2D 펼침의 좌표틀 이동에 불변이라 안전."""
-    sec = submerged.section(plane_origin=[0, 0, 0], plane_normal=[1, 0, 0])
+    면적은 2D 펼침의 좌표틀 이동에 불변이라 안전.
+    중앙은 (xmin+xmax)/2 — Ship-D는 x가 0~L 범위라 x=0은 뱃머리 끝
+    (x=0 고정으로 잘랐다가 80% NaN 났던 실측 버그, 2026-08-01)."""
+    x_mid = 0.5 * (submerged.bounds[0][0] + submerged.bounds[1][0])
+    sec = submerged.section(plane_origin=[x_mid, 0, 0],
+                            plane_normal=[1, 0, 0])
     if sec is None:
         return float("nan")
     planar, _ = sec.to_2D()
