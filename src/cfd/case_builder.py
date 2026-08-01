@@ -74,12 +74,18 @@ def render_template(text: str, values: dict) -> str:
     return text
 
 
-def _case_values(report: dict, mode: str, grid_factor: float = 1.0) -> dict:
+def _case_values(report: dict, mode: str, grid_factor: float = 1.0,
+                 fs_level: int = 0) -> dict:
     """report.json → 템플릿 값 사전."""
     loa = report["dimensions"]["loa"]
     speed = report["goal"]["target_speed_ms"]
     values = {"SPEED": speed, "NU": NU_SEAWATER, "RHO": RHO_SEAWATER,
               "LOA": loa, **domain_box(loa, mode, grid_factor)}
+    # 수면 띠 세분 (inter 전용 — simple 템플릿엔 구멍이 없어 미사용):
+    # 띠 = 수면 z=0 대칭 ±0.05L (파고 몇 cm 대역을 덮는 최소 폭)
+    values["FS_ZMIN"] = f"{-0.05 * loa:.6g}"
+    values["FS_ZMAX"] = f"{0.05 * loa:.6g}"
+    values["FS_LEVEL"] = fs_level
     # 난류 초기값: 난류강도 I=5%, 길이척도 l=0.07L (관용 개략)
     k = 1.5 * (0.05 * speed) ** 2
     values["K_INIT"] = f"{k:.6g}"
@@ -90,11 +96,11 @@ def _case_values(report: dict, mode: str, grid_factor: float = 1.0) -> dict:
 
 
 def build_case(report_dir: Path, out_dir: Path, mode: str,
-               grid_factor: float = 1.0) -> Path:
+               grid_factor: float = 1.0, fs_level: int = 0) -> Path:
     """산출물 폴더 → 완성된 OpenFOAM 케이스 폴더. 반환: 케이스 경로."""
     report_dir, out_dir = Path(report_dir), Path(out_dir)
     report = json.loads((report_dir / "report.json").read_text())
-    values = _case_values(report, mode, grid_factor)
+    values = _case_values(report, mode, grid_factor, fs_level)
 
     case = out_dir
     if case.exists():
