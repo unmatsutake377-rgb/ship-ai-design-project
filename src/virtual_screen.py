@@ -21,18 +21,26 @@ from src.core.types import GoalSpec
 from src.screen_shipd import _mark_pareto, evaluate_shipd_hull
 
 
-def load_training_data(screen_csv: str | Path
+def load_training_data(screen_csv: str | Path,
+                       features: np.ndarray | None = None
                        ) -> tuple[np.ndarray, np.ndarray, np.ndarray,
                                   np.ndarray]:
-    """screen.csv(실측) + Ship-D 벡터 결합 → (X, y_feas, Y_obj, hull_ids).
+    """screen.csv(실측) + 입력행렬 결합 → (X, y_feas, Y_obj, hull_ids).
 
+    features 주입 시 물리 특징 22차원 (특징 공학, 2026-08-01 — 45차원
+    원시 직통은 분류 0.535 동전 수준이었음), 없으면 원시 벡터.
     주의: screen.csv는 feasible 행만 저장돼 있던 초기 버전도 있으므로
     reason 열 유무와 무관하게 hull_id 기준으로 결합한다.
     """
     df = pd.read_csv(screen_csv)
-    vectors, _ = shipd_loader.load_vectors()
     ids = df["hull_id"].to_numpy(dtype=int)
-    x = vectors[ids]
+    if features is not None:
+        x = features[ids]
+        keep = np.isfinite(x).all(axis=1)   # 특징 실패(NaN) 선체 제외
+        df, ids, x = df[keep], ids[keep], x[keep]
+    else:
+        vectors, _ = shipd_loader.load_vectors()
+        x = vectors[ids]
     y_feas = df["feasible"].to_numpy(dtype=float)
     y_obj = df[["resistance_n", "total_mass_kg",
                 "stability_margin"]].to_numpy(dtype=float)
@@ -42,21 +50,35 @@ def load_training_data(screen_csv: str | Path
 def virtual_screen(goal: GoalSpec, target_loa: float,
                    screen_csv: str | Path, top_k: int = 80,
                    epochs: int = 400, seed: int = 0,
+                   features_path: str | Path | None = None,
                    verbose: bool = False) -> tuple[pd.DataFrame, dict]:
     """대리모델 학습 → 전수 예측 → 상위 K 실물리 재검증 → 합산 파레토."""
-    x, y_feas, y_obj, known_ids = load_training_data(screen_csv)
+    features = None
+    if features_path is not None and Path(features_path).exists():
+        features = np.load(features_path)
+        if verbose:
+            n_ok = int(np.isfinite(features).all(axis=1).sum())
+            print(f"물리 특징 사용: {features.shape} (완전 {n_ok}척)")
+    x, y_feas, y_obj, known_ids = load_training_data(screen_csv, features)
     model, metrics = train_surrogate(x, y_feas, y_obj,
                                      epochs=epochs, seed=seed)
+    metrics["input"] = ("features22" if features is not None else "raw45")
     if verbose:
         print(f"대리모델 지표: {metrics}")
 
     vectors, _ = shipd_loader.load_vectors()
-    feas_p, obj_p = model.predict(vectors)
+    if features is not None:
+        predict_x = features
+        valid = np.isfinite(features).all(axis=1)
+    else:
+        predict_x = vectors
+        valid = np.ones(len(vectors), dtype=bool)
+    feas_p, obj_p = model.predict(np.nan_to_num(predict_x))
 
     # 예측-타당 & 미평가 선체 중 예측-파레토 근사: 저항 예측 순 상위 후보
     # (3목적 예측 파레토 전체는 후보 폭이 넓어짐 — 저항·중량·여유 각 축
     #  상위를 섞어 다양성 확보)
-    candidate = np.where((feas_p > 0.5)
+    candidate = np.where((feas_p > 0.5) & valid
                          & ~np.isin(np.arange(len(vectors)), known_ids))[0]
     if len(candidate) == 0:
         raise RuntimeError("예측-타당 후보 0척 — 대리모델/데이터 점검 필요")
@@ -106,12 +128,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--screen-csv", default="outputs/shipd_pareto/screen.csv")
     parser.add_argument("--topk", type=int, default=80)
     parser.add_argument("--out", default="outputs/virtual_screen")
+    parser.add_argument("--features", default="data/shipd/features_loa3.npy",
+                        help="물리 특징 npy (없으면 원시 45차원 사용)")
     args = parser.parse_args(argv)
 
     goal = GoalSpec(target_speed_ms=args.speed, payload_kg=args.payload,
                     purpose="survey", endurance_h=args.endurance)
     combined, metrics = virtual_screen(goal, args.loa, args.screen_csv,
-                                       top_k=args.topk, verbose=True)
+                                       top_k=args.topk,
+                                       features_path=args.features,
+                                       verbose=True)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
