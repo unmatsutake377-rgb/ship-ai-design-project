@@ -48,14 +48,15 @@ class SurrogateModel:
         return feas, obj
 
 
-def _build_net():
+def _build_net(n_in: int = 45):
+    """n_in: 입력 차원 — 원시 45 또는 물리 특징 22 (특징 공학)."""
     import torch.nn as nn
 
     class TwoHead(nn.Module):
         def __init__(self):
             super().__init__()
             self.body = nn.Sequential(
-                nn.Linear(45, HIDDEN), nn.ReLU(),
+                nn.Linear(n_in, HIDDEN), nn.ReLU(),
                 nn.Linear(HIDDEN, HIDDEN), nn.ReLU(),
             )
             self.head_feas = nn.Linear(HIDDEN, 1)
@@ -100,7 +101,7 @@ def train_surrogate(x: np.ndarray, y_feas: np.ndarray, y_obj: np.ndarray,
     tm = torch.tensor(feas_mask.astype(np.float32), device=dev).unsqueeze(1)
     tr = torch.tensor(train_idx, device=dev)
 
-    net = _build_net().to(dev)
+    net = _build_net(n_in=x.shape[1]).to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=lr)
     bce = nn.BCEWithLogitsLoss()
 
