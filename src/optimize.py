@@ -40,8 +40,12 @@ def dims_from_vector(x: np.ndarray) -> MainDimensions:
                           draft_design=draft, cb=cb)
 
 
-def evaluate_candidate(x: np.ndarray, goal: GoalSpec) -> dict:
-    """후보 1개 평가. 실패는 feasible=False + 페널티 목적값."""
+def evaluate_candidate(x: np.ndarray, goal: GoalSpec,
+                       payload_volume: float | None = None) -> dict:
+    """후보 1개 평가. 실패는 feasible=False + 페널티 목적값.
+
+    payload_volume [m³]: 짐 부피 직접 지정 (생략 시 용도별 밀도 환산).
+    """
     dims = dims_from_vector(x)
     base = {"loa": dims.loa, "lb": dims.loa / dims.beam,
             "bt": dims.beam / dims.draft_design, "cb": dims.cb}
@@ -53,6 +57,17 @@ def evaluate_candidate(x: np.ndarray, goal: GoalSpec) -> dict:
             design_spiral(mesh, dims, goal)
         if not hydro.passed:
             raise ValueError(f"정역학 필터 불합격: {hydro.checks}")
+        # MaxBox 공간 검사 (#27 후속, 2026-08-03): 파이프라인만 검사하면
+        # 최적화가 "짐 안 들어가는 배"를 전선에 올릴 수 있음 — 후보
+        # 평가에도 동일 필터
+        from src.physics.maxbox import largest_box, payload_volume_for
+
+        box = largest_box(mesh, depth=dims.depth)
+        pv, _basis = payload_volume_for(goal.payload_kg, goal.purpose,
+                                        payload_volume)
+        if pv > box.volume:
+            raise ValueError(
+                f"탑재 공간 부족: 짐 {pv:.3f} m³ > MaxBox {box.volume:.3f} m³")
         gmb = hydro.gm / dims.beam
         margin = min(gmb - GM_BAND[0], GM_BAND[1] - gmb)
         return {**base, "resistance_n": resist.total,

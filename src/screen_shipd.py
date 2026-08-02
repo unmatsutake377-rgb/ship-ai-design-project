@@ -48,6 +48,11 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
         )
         if not hydro.passed:
             raise ValueError(f"필터 불합격: {hydro.checks}")
+        # MaxBox 공간 검사는 Ship-D 경로에 **보류** (2026-08-03 실측):
+        # 단일 상자 가정이 실선형에 과혹 — 표본 15척 중 공간 사유 4척
+        # 등 feasible 붕괴. 실제 배는 다구획 분산 적재이므로 다구획
+        # 모형이 선행돼야 공정 (Wigley 최적화기에는 적용됨 — 매끈한
+        # 계열이라 단일 상자 근사가 덜 보수적). #27 후속의 후속으로 등록.
         gmb = hydro.gm / beam
         margin = min(gmb - GM_BAND[0], GM_BAND[1] - gmb)
         return {**base, "beam": beam, "draft": hydro.draft,
