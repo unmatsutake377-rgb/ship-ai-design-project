@@ -160,13 +160,16 @@ def vessel_from_report(report: dict) -> VesselModel:
 
 
 def step(vessel: VesselModel, state: np.ndarray, t_l: float, t_r: float,
-         dt: float) -> np.ndarray:
-    """상태 [x, y, ψ, u, v, r] 한 스텝 전진 (오일러)."""
+         dt: float, extra_yaw_moment: float = 0.0) -> np.ndarray:
+    """상태 [x, y, ψ, u, v, r] 한 스텝 전진 (오일러).
+
+    extra_yaw_moment: 러더 등 추력기 외 조타 모멘트 [N·m] (기본 0 —
+    기존 차동 전용 경로 무회귀)."""
     x, y, psi, u, v, r = state
     u_dot = ((t_l + t_r) - vessel.resistance(u)
              + vessel.m_y * v * r) / vessel.m_x
     v_dot = (-vessel.m_x * u * r - vessel.yv * v) / vessel.m_y
-    r_dot = ((t_r - t_l) * vessel.thruster_sep / 2.0
+    r_dot = ((t_r - t_l) * vessel.thruster_sep / 2.0 + extra_yaw_moment
              - vessel.nr * r - vessel.nv * v) / vessel.i_z
     return np.array([
         x + dt * (u * math.cos(psi) - v * math.sin(psi)),
@@ -195,8 +198,13 @@ class SimResult:
 
 def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]],
                        u_desired: float, dt: float = DT_DEFAULT,
-                       t_max: float = 600.0) -> SimResult:
-    """LOS 유도 + PD 선수각 + P 속도 제어로 웨이포인트 순회."""
+                       t_max: float = 600.0,
+                       forward_only: bool = False) -> SimResult:
+    """LOS 유도 + PD 선수각 + P 속도 제어로 웨이포인트 순회.
+
+    forward_only: 추력기 후진 금지 (실물·gz 프로펠러 근사). 기본 False
+    (기존 경로 무회귀). True면 차동 자기지속 루프(요동→차동→순전진력→
+    과속)가 파이썬 시뮬에서도 재현됨 — 러더 가설의 대조군."""
     accept = ACCEPT_RADIUS_OVER_L * vessel.loa
     # 고유값 판별 게인 선정 (모듈 상단 설계 노트 참조)
     kp_psi, kd_psi, lookahead, design_info = design_gains(vessel, u_desired)
@@ -253,6 +261,8 @@ def simulate_waypoints(vessel: VesselModel, waypoints: list[tuple[float, float]]
         common = float(np.clip(kp_u * (u_cmd - u), -headroom, headroom))
         t_l = common - diff
         t_r = common + diff
+        if forward_only:
+            t_l, t_r = max(t_l, 0.0), max(t_r, 0.0)
 
         state = step(vessel, state, t_l, t_r, dt)
         result.time.append(t)
@@ -336,3 +346,96 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(main())
+
+
+def simulate_waypoints_rudder(vessel: VesselModel,
+                              waypoints: list[tuple[float, float]],
+                              u_desired: float, dt: float = DT_DEFAULT,
+                              t_max: float = 600.0,
+                              rudder=None) -> SimResult:
+    """구성 A (차동 2발 + 러더) 주행 — 러더 우선 조타 (스펙 2026-08-03).
+
+    배분 철학: 순항 조타는 러더(추력 오염 0), 러더가 힘이 달리는
+    저속·대오차 구간만 차동이 잔여 모멘트를 보조 — 단 차동은 속도
+    예산 안에서만 (추력 예산 배분의 부활: 러더가 조타를 지니
+    "예산에 조타가 갇히는" 옛 실패 원인이 소멸함).
+    """
+    from src.sim_adapters.rudder import (
+        RUDDER_MAX_RAD,
+        RudderModel,
+        rudder_moment,
+    )
+
+    if rudder is None:
+        # 개략 러더 (흘수 ≈ 0.15L 근사 — 실물 스펙 수집 전)
+        rudder = RudderModel.for_vessel(vessel.loa, 0.15 * vessel.loa)
+
+    accept = ACCEPT_RADIUS_OVER_L * vessel.loa
+    kp_psi, kd_psi, lookahead, design_info = design_gains(vessel, u_desired)
+    kp_u = KP_SPEED * vessel.m_x / 10.0
+
+    state = np.zeros(6)
+    result = SimResult()
+    result.control_design = {**design_info, "steering": "diff2+rudder"}
+    wp_index = 0
+    prev_wp = (0.0, 0.0)
+    steps = int(t_max / dt)
+
+    for k in range(steps):
+        t = k * dt
+        wx, wy = waypoints[wp_index]
+        x, y, psi, u, v, r = state
+
+        px, py = prev_wp
+        alpha = math.atan2(wy - py, wx - px)
+        seg_len = math.hypot(wx - px, wy - py)
+        s_along = (x - px) * math.cos(alpha) + (y - py) * math.sin(alpha)
+        if math.hypot(wx - x, wy - y) < accept or s_along > seg_len:
+            prev_wp = (wx, wy)
+            wp_index += 1
+            result.waypoints_reached = wp_index
+            if wp_index == len(waypoints):
+                result.success = True
+                result.duration_s = t
+                break
+            wx, wy = waypoints[wp_index]
+            px, py = prev_wp
+            alpha = math.atan2(wy - py, wx - px)
+
+        e_ct = (-(x - px) * math.sin(alpha)
+                + (y - py) * math.cos(alpha))
+        psi_d = alpha + math.atan2(-e_ct, lookahead)
+
+        dist_wp = math.hypot(wx - x, wy - y)
+        slow_r = max(SLOWDOWN_RADIUS_OVER_L * vessel.loa, 1e-9)
+        u_cmd = u_desired * float(np.clip(dist_wp / slow_r,
+                                          SLOWDOWN_MIN_FRACTION, 1.0))
+
+        moment_cmd = kp_psi * ssa(psi_d - psi) - kd_psi * r
+        # ① 러더가 우선 부담: 현재 유속에서 각도당 모멘트 → 필요 타각
+        n_per_rad = abs(rudder_moment(rudder, u, 0.01)) / 0.01
+        delta = float(np.clip(moment_cmd / max(n_per_rad, 1e-9),
+                              -RUDDER_MAX_RAD, RUDDER_MAX_RAD))
+        n_rudder = rudder_moment(rudder, u, delta)
+        # ② 잔여 모멘트만 차동 보조 — 속도 예산 안에서
+        m_res = moment_cmd - n_rudder
+        f_max = 2.0 * vessel.thrust_max
+        f_budget = float(np.clip(2.0 * kp_u * (u_cmd - u), 0.0, f_max))
+        d = 2.0 * m_res / vessel.thruster_sep     # = t_r − t_l 목표
+        d_max = min(f_budget, f_max - f_budget)
+        d = float(np.clip(d, -d_max, d_max))
+        t_l = 0.5 * (f_budget - d)
+        t_r = 0.5 * (f_budget + d)
+
+        state = step(vessel, state, t_l, t_r, dt,
+                     extra_yaw_moment=n_rudder)
+        result.time.append(t)
+        result.x.append(float(state[0]))
+        result.y.append(float(state[1]))
+        result.psi.append(float(state[2]))
+        result.u.append(float(state[3]))
+        result.thrust_l.append(t_l)
+        result.thrust_r.append(t_r)
+    else:
+        result.duration_s = t_max
+    return result
