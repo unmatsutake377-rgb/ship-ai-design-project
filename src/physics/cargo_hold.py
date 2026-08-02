@@ -45,6 +45,8 @@ class HoldReport:
     reserved_volume: float  # 예약 구역 부피 [m³]
     stern_cut_x: float      # 절단 경계 (이보다 선미쪽 = 예약) [m]
     z0: float               # 공유 상자 바닥 높이 [m]
+    interior_volume: float = 0.0   # 선체 내부 부피 (단면 적분) [m³]
+    interior_cx: float = 0.0       # 내부 부피 도심 x — 구조 LCG 근사용
 
 
 def reserved_volume_for(propulsion_mass_kg: float) -> float:
@@ -165,9 +167,12 @@ def multibay_hold(mesh: trimesh.Trimesh, depth: float,
         BoxReport(length=b[0], width=b[1], height=b[2], volume=b[3],
                   x0=xmin + b[4], x1=xmin + b[5], z0=z0)
         for b in bays)
+    iv = float(col_vol.sum())
+    icx = float((col_vol * xs).sum() / iv) if iv > 0 else float(xmin)
     return HoldReport(boxes=boxes, total_volume=total,
                       reserved_volume=reserved_volume,
-                      stern_cut_x=stern_cut_x, z0=z0)
+                      stern_cut_x=stern_cut_x, z0=z0,
+                      interior_volume=iv, interior_cx=icx)
 
 
 # ── 2단계: KG/GM 구간 판정 (스펙 §3) ─────────────────────────────
@@ -266,3 +271,51 @@ def gm_band_reachable(cargo_kg_lo: float, cargo_kg_hi: float, km: float,
     best = min(max((lo + hi) / 2.0, gmb_lo), gmb_hi)
     margin = min(best - lo, hi - best)
     return bool(margin >= 0.0), float(margin)
+
+
+# ── 3단계: 트림 구간 판정 (스펙 §3) ──────────────────────────────
+#
+# 짐 배분에 따라 짐 세로 무게중심(LCG_c)이 구획 중심들 사이를
+# 미끄러진다. 상자 안 짐의 x중심 = 상자 x중심 (균질 주입) → 도달
+# 구간 끝점 = "한쪽 끝 구획부터 용량껏 채우기" 그리디 (용량 상한이
+# 있는 분수 배낭 — 정확해).
+
+
+@dataclass(frozen=True)
+class BayGeomX:
+    """트림 판정용 구획 기하 (x중심·용량 부피)."""
+    x_center: float     # [m]
+    cap_volume: float   # [m³]
+
+
+def bays_x_from_hold(hold: HoldReport) -> list[BayGeomX]:
+    return [BayGeomX(x_center=0.5 * (b.x0 + b.x1), cap_volume=b.volume)
+            for b in hold.boxes]
+
+
+def cargo_lcg_interval(bays: list[BayGeomX], payload_kg: float,
+                       density: float) -> tuple[float, float] | None:
+    """짐 세로 무게중심 도달 구간 [최소 x, 최대 x]. 용량 초과면 None."""
+    if not bays or payload_kg <= 0.0:
+        return None
+    vol_need = payload_kg / density
+    if vol_need > sum(b.cap_volume for b in bays) * (1.0 + 1e-9):
+        return None
+
+    def extreme(reverse: bool) -> float:
+        remain = vol_need
+        moment = 0.0
+        for b in sorted(bays, key=lambda b: b.x_center, reverse=reverse):
+            v = min(remain, b.cap_volume)
+            moment += v * b.x_center
+            remain -= v
+            if remain <= 0.0:
+                break
+        return moment / vol_need
+
+    return extreme(False), extreme(True)   # (x 작은 쪽 몰기, 큰 쪽 몰기)
+
+
+# 운용 트림 한계 [deg] — 소형정 개략 명명 상수 (#17 승격 대상).
+# 실선은 만재 트림을 L의 0.5~1% 기울기 이내로 관리하는 관행.
+TRIM_MAX_DEG = 2.0

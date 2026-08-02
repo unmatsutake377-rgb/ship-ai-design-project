@@ -137,3 +137,50 @@ def test_gm_band_reachable_overlap():
         cargo_mass=100.0, total_mass=200.0, beam=1.0,
         band=(0.04, 0.40))
     assert not ok2 and margin2 < 0
+
+
+def test_longitudinal_properties_box_hand_calc():
+    """3단계 손계산: 상자 선체 L2×B1, 흘수 0.25.
+
+    LCB = 중앙 1.0, BML = I_L/∇ = (1·2³/12)/(0.5) = 1.333."""
+    import trimesh
+
+    from src.physics.hydrostatics import longitudinal_properties
+
+    hull = trimesh.creation.box(extents=[2.0, 1.0, 0.5])
+    hull.apply_translation([1.0, 0.0, 0.25])   # x∈[0,2], z∈[0,0.5]
+    lcb, bml = longitudinal_properties(hull, draft=0.25)
+    assert lcb == pytest.approx(1.0, abs=0.02)
+    assert bml == pytest.approx(1.333, rel=0.03)
+
+
+def test_trim_angle_box_hand_calc():
+    """트림 손계산: θ = (LCG−LCB)/GML (소각 선형).
+
+    KB=0.125, BML=1.333, KG=0.3 → GML=1.158.
+    LCG−LCB=0.1 → θ = 0.0863 rad = 4.95°."""
+    from src.physics.hydrostatics import trim_angle_deg
+
+    theta = trim_angle_deg(lcg_x=1.1, lcb_x=1.0, kb=0.125, bml=1.333,
+                           kg=0.3)
+    assert theta == pytest.approx(np.degrees(0.1 / 1.158), rel=1e-3)
+
+
+def test_cargo_lcg_interval_hand_calc():
+    """짐 LCG 도달 구간: 구획 2개 (중심 x 0.5·1.5, 용량 각 120 kg분),
+    짐 180 kg → 최소 = 앞칸 꽉(120)+뒷칸 60: (120·0.5+60·1.5)/180=0.833,
+    최대 = 뒷칸 꽉+앞칸 60: (120·1.5+60·0.5)/180 = 1.167."""
+    from src.physics.cargo_hold import BayGeomX, cargo_lcg_interval
+
+    bays = [BayGeomX(x_center=0.5, cap_volume=0.2),
+            BayGeomX(x_center=1.5, cap_volume=0.2)]
+    lo, hi = cargo_lcg_interval(bays, payload_kg=180.0, density=600.0)
+    assert lo == pytest.approx(0.833, rel=1e-2)
+    assert hi == pytest.approx(1.167, rel=1e-2)
+
+
+def test_cargo_lcg_interval_overflow_none():
+    from src.physics.cargo_hold import BayGeomX, cargo_lcg_interval
+
+    bays = [BayGeomX(x_center=1.0, cap_volume=0.01)]
+    assert cargo_lcg_interval(bays, payload_kg=100.0, density=600.0) is None

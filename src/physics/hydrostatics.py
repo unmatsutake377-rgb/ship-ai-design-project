@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import math
+
 import numpy as np
 import trimesh
 
@@ -147,3 +149,50 @@ def evaluate(mesh: trimesh.Trimesh, total_mass: float, kg: float,
         waterplane_area=aw, waterplane_ixx=ixx,
         checks=checks, passed=all(checks.values()),
     )
+
+
+# ── 세로 방향 (3단계 트림, 스펙 multibay-maxbox §3) ────────────────
+
+def _polygon_area_iyy_cx(coords: np.ndarray) -> tuple[float, float, float]:
+    """다각형 면적, 도심 x, 도심 기준 세로 2차 모멘트 ∫(x−x̄)²dA."""
+    x, y = coords[:, 0], coords[:, 1]
+    x2, y2 = np.roll(x, -1), np.roll(y, -1)
+    cross = x * y2 - x2 * y
+    area = 0.5 * np.sum(cross)
+    if abs(area) < 1e-12:
+        return 0.0, 0.0, 0.0
+    cx = np.sum(cross * (x + x2)) / (6.0 * area)
+    iyy0 = np.sum(cross * (x * x + x * x2 + x2 * x2)) / 12.0
+    iyy = iyy0 - area * cx * cx          # 평행축 정리 (원점 → 도심)
+    return abs(float(area)), float(cx), abs(float(iyy))
+
+
+def longitudinal_properties(mesh: trimesh.Trimesh, draft: float
+                            ) -> tuple[float, float]:
+    """(LCB x, BML) — 세로 부심 위치와 세로 메타센터 반경.
+
+    BML = I_L/∇ (수선면 도심 기준 세로 2차 모멘트 / 배수용적).
+    통상 BML ≫ KG라 세로 복원은 수선면 형상이 지배."""
+    below = immersed_mesh(mesh, draft)
+    vol = float(below.volume)
+    lcb = float(below.center_mass[0])
+    area_t, cx_num, iyy_t = 0.0, 0.0, 0.0
+    polys = [(a, cx, iyy) for a, cx, iyy in
+             (_polygon_area_iyy_cx(c) for c in _waterplane_polygons(mesh, draft))]
+    area_t = sum(p[0] for p in polys)
+    if area_t > 0.0:
+        cx_all = sum(p[0] * p[1] for p in polys) / area_t
+        iyy_t = sum(p[2] + p[0] * (p[1] - cx_all) ** 2 for p in polys)
+    return lcb, iyy_t / max(vol, 1e-12)
+
+
+def trim_angle_deg(lcg_x: float, lcb_x: float, kb: float, bml: float,
+                   kg: float) -> float:
+    """소각 선형 트림각 [deg]: θ = (LCG−LCB)/GML, GML = KB+BML−KG.
+
+    자유 자세 완전판(기울인 물면 2변수 평형)의 소각 근사 — 소형정
+    운용 트림(수 도 이내) 영역에서 표준 설계법. 부호: +x 쪽 무거우면 +."""
+    gml = kb + bml - kg
+    if gml <= 1e-9:
+        return float("inf")
+    return math.degrees((lcg_x - lcb_x) / gml)

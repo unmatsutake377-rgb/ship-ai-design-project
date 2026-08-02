@@ -53,11 +53,18 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
         # 위해 feasible(중량·안정)은 그대로 두고 space_ok를 별도 열로 —
         # 기존 1만 라벨과 의미가 섞이지 않게 (파레토는 둘 다 요구).
         from src.physics.cargo_hold import (
+            TRIM_MAX_DEG,
             bays_from_hold,
+            bays_x_from_hold,
             cargo_kg_interval,
+            cargo_lcg_interval,
             gm_band_reachable,
             multibay_hold,
             reserved_volume_for,
+        )
+        from src.physics.hydrostatics import (
+            longitudinal_properties,
+            trim_angle_deg,
         )
         from src.physics.maxbox import payload_volume_for
 
@@ -81,6 +88,33 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
                 total_mass=weights.total_mass, beam=beam, band=GM_BAND)
         else:
             gm_alloc_ok, gm_alloc_margin = False, float("nan")
+        # 3단계 트림: 짐 LCG 도달 구간이 부력중심(LCB)을 품으면 수평
+        # 배치 존재 (트림 0). 못 품으면 가장 가까운 끝점에서 소각
+        # 선형 트림각 θ = (LCG−LCB)/GML — 한계각 검사.
+        # 좌표: Ship-D 메쉬 프레임 (뱃머리 x=0, 선미 xmax). 구조 LCG =
+        # 내부 부피 도심 근사, 추진 LCG = M4a −0.45L을 이 프레임으로
+        # 옮긴 선미쪽 (중앙 + 0.45L).
+        lcg_iv = cargo_lcg_interval(bays_x_from_hold(hold), goal.payload_kg,
+                                    goal.payload_kg / max(pv, 1e-9))
+        if lcg_iv is not None and interval is not None:
+            lcb_x, bml = longitudinal_properties(mesh, hydro.draft)
+            x_mid = 0.5 * (mesh.bounds[0][0] + mesh.bounds[1][0])
+            x_prop = x_mid + 0.45 * target_loa
+            fixed_x = (weights.structure_mass * hold.interior_cx
+                       + weights.propulsion_mass * x_prop)
+            lcg_lo = (fixed_x + goal.payload_kg * lcg_iv[0]) \
+                / weights.total_mass
+            lcg_hi = (fixed_x + goal.payload_kg * lcg_iv[1]) \
+                / weights.total_mass
+            kg_mid = (fixed + goal.payload_kg
+                      * 0.5 * (interval[0] + interval[1])) \
+                / weights.total_mass
+            lcg_best = min(max(lcb_x, lcg_lo), lcg_hi)  # LCB에 최대 접근
+            trim_deg = trim_angle_deg(lcg_best, lcb_x, hydro.kb, bml,
+                                      kg_mid)
+            trim_ok = bool(abs(trim_deg) <= TRIM_MAX_DEG)
+        else:
+            trim_deg, trim_ok = float("nan"), False
         gmb = hydro.gm / beam
         margin = min(gmb - GM_BAND[0], GM_BAND[1] - gmb)
         return {**base, "beam": beam, "draft": hydro.draft,
@@ -91,7 +125,8 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
                 "hold_volume_m3": hold.total_volume,
                 "n_bays": len(hold.boxes),
                 "gm_alloc_ok": bool(gm_alloc_ok),
-                "gm_alloc_margin": gm_alloc_margin, "reason": ""}
+                "gm_alloc_margin": gm_alloc_margin,
+                "trim_ok": trim_ok, "trim_deg": trim_deg, "reason": ""}
     except Exception as exc:
         return {**base, "beam": float("nan"), "draft": float("nan"),
                 "resistance_n": float("nan"),
@@ -100,6 +135,7 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
                 "feasible": False, "space_ok": False,
                 "hold_volume_m3": float("nan"), "n_bays": 0,
                 "gm_alloc_ok": False, "gm_alloc_margin": float("nan"),
+                "trim_ok": False, "trim_deg": float("nan"),
                 "reason": str(exc)[:80]}
 
 
@@ -133,8 +169,9 @@ def screen(goal: GoalSpec, target_loa: float, n_samples: int = 300,
             ok = sum(r["feasible"] for r in rows)
             print(f"  {k + 1}/{n_samples} 평가 — feasible {ok}")
     df = pd.DataFrame(rows)
-    # 파레토 후보 = 중량·안정 AND 공간 AND 배치 존재 (2026-08-03)
-    candidate = df["feasible"] & df["space_ok"] & df["gm_alloc_ok"]
+    # 파레토 후보 = 중량·안정 AND 공간 AND KG배치 AND 트림 (2026-08-03)
+    candidate = (df["feasible"] & df["space_ok"] & df["gm_alloc_ok"]
+                 & df["trim_ok"])
     feasible = df[candidate].reset_index(drop=True)
     if feasible.empty:
         return df.assign(pareto=False)
