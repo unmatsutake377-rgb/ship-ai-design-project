@@ -16,23 +16,28 @@ def barge_feats():
 
 
 def test_feature_count():
-    assert len(FEATURE_NAMES) == N_FEATURES == 30
+    assert len(FEATURE_NAMES) == N_FEATURES == 32
 
 
-def test_barge_v2_equilibrium_features(barge_feats):
-    """v2: 바지선은 V(T)=L·B·T 선형 → 평형 흘수 해석 정답.
+def test_barge_v3_equilibrium_features(barge_feats):
+    """v3: 바지선은 V(T)=L·B·T 선형 → 평형 흘수 해석 정답.
 
-    t* = W/(ρ·L·B) = 150/(1025·4·1) = 0.0366 m (외삽 구간 — np.interp
-    못박음 버그의 회귀 시험). BM* = (L·B³/12)/V*, 상자 입사각 = 90°."""
+    v3부터 기준 질량 = 배별 무게 모델 (150 kg 고정 폐기).
+    t* = W/(ρ·L·B) (외삽 구간 — np.interp 못박음 버그의 회귀 시험).
+    BM* = (L·B³/12)/V*, 상자 입사각 = 90°."""
+    from src.physics.weights import estimate_weights
+
     f = barge_feats
-    t_star = 150.0 / (1025.0 * L * B)
+    barge_area = 2 * (L * B + L * D + B * D)
+    mass = estimate_weights(barge_area, D, 100.0).total_mass
+    v_star = mass / 1025.0
+    t_star = mass / (1025.0 * L * B)
     assert f["t_eq"] == pytest.approx(t_star, rel=0.03)
     assert f["awp_eq"] == pytest.approx(L * B, rel=0.03)
-    assert f["bm_eq"] == pytest.approx((L * B**3 / 12) / (150.0 / 1025.0),
-                                       rel=0.06)
+    assert f["bm_eq"] == pytest.approx((L * B**3 / 12) / v_star, rel=0.06)
     assert f["entrance_deg"] == pytest.approx(90.0, abs=3.0)
     assert f["capacity_ratio"] == pytest.approx(
-        (L * B * 0.7 * D) / (150.0 / 1025.0), rel=0.05)
+        (L * B * 0.7 * D) / v_star, rel=0.05)
 
 
 def test_wigley_entrance_sharper_than_barge():
