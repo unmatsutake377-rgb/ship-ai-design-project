@@ -57,3 +57,21 @@ def test_pareto_no_domination(pareto):
                 continue
             dominates = (f[i] <= f[j]).all() and (f[i] < f[j]).any()
             assert not dominates, f"{i}가 {j}를 지배"
+
+
+def test_candidate_rejected_when_payload_too_bulky():
+    """#27 후속: 무게는 실려도 공간(MaxBox)이 안 나오면 최적화 후보 도태.
+
+    payload_volume을 괴물값(50 m³)으로 강제 — 어떤 소형 후보도 불가."""
+    import numpy as np
+
+    from src.core.types import GoalSpec
+    from src.optimize import evaluate_candidate
+
+    goal = GoalSpec(target_speed_ms=1.2, payload_kg=100.0, purpose="survey")
+    x = np.array([3.0, 3.5, 4.0, 0.47])   # 정상이면 통과할 후보
+    ok = evaluate_candidate(x, goal)
+    assert ok["feasible"] is True          # 기본 밀도 경로는 통과
+    bad = evaluate_candidate(x, goal, payload_volume=50.0)
+    assert bad["feasible"] is False
+    assert "공간" in bad["reason"]
