@@ -48,23 +48,95 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
         )
         if not hydro.passed:
             raise ValueError(f"필터 불합격: {hydro.checks}")
-        # MaxBox 공간 검사는 Ship-D 경로에 **보류** (2026-08-03 실측):
-        # 단일 상자 가정이 실선형에 과혹 — 표본 15척 중 공간 사유 4척
-        # 등 feasible 붕괴. 실제 배는 다구획 분산 적재이므로 다구획
-        # 모형이 선행돼야 공정 (Wigley 최적화기에는 적용됨 — 매끈한
-        # 계열이라 단일 상자 근사가 덜 보수적). #27 후속의 후속으로 등록.
+        # 다구획 공간 검사 (2026-08-03 재개방 — 스펙 multibay-maxbox):
+        # 단일 상자 보류(과혹)를 다구획+예약 절단으로 대체. 라벨 호환을
+        # 위해 feasible(중량·안정)은 그대로 두고 space_ok를 별도 열로 —
+        # 기존 1만 라벨과 의미가 섞이지 않게 (파레토는 둘 다 요구).
+        from src.physics.cargo_hold import (
+            TRIM_MAX_DEG,
+            bays_from_hold,
+            bays_x_from_hold,
+            cargo_kg_interval,
+            cargo_lcg_interval,
+            gm_band_reachable,
+            multibay_hold,
+            reserved_volume_for,
+        )
+        from src.physics.hydrostatics import (
+            longitudinal_properties,
+            trim_angle_deg,
+        )
+        from src.physics.maxbox import payload_volume_for
+
+        pv, _ = payload_volume_for(goal.payload_kg, goal.purpose)
+        hold = multibay_hold(mesh, depth,
+                             reserved_volume_for(weights.propulsion_mass),
+                             stern="xmax")   # Ship-D 관례: 뱃머리 x=0
+        # 2단계 구간 판정: 짐을 실제 구획에 부었을 때 도달 가능한
+        # KG 구간이 GM 밴드와 겹치나 — 합격 배치의 존재 판정.
+        # (기존 stability_margin은 "짐 VCG=0.6D 가정" 한 점 평가 —
+        #  라벨 호환 위해 보존, 구간 판정은 별도 열)
+        interval = cargo_kg_interval(bays_from_hold(hold), goal.payload_kg,
+                                     goal.payload_kg / max(pv, 1e-9))
+        if interval is not None:
+            a = weights.assumptions
+            fixed = (weights.structure_mass * a["vcg_structure"]
+                     + weights.propulsion_mass * a["vcg_propulsion"])
+            gm_alloc_ok, gm_alloc_margin = gm_band_reachable(
+                interval[0], interval[1], km=hydro.kb + hydro.bm,
+                fixed_moment=fixed, cargo_mass=goal.payload_kg,
+                total_mass=weights.total_mass, beam=beam, band=GM_BAND)
+        else:
+            gm_alloc_ok, gm_alloc_margin = False, float("nan")
+        # 3단계 트림: 짐 LCG 도달 구간이 부력중심(LCB)을 품으면 수평
+        # 배치 존재 (트림 0). 못 품으면 가장 가까운 끝점에서 소각
+        # 선형 트림각 θ = (LCG−LCB)/GML — 한계각 검사.
+        # 좌표: Ship-D 메쉬 프레임 (뱃머리 x=0, 선미 xmax). 구조 LCG =
+        # 내부 부피 도심 근사, 추진 LCG = M4a −0.45L을 이 프레임으로
+        # 옮긴 선미쪽 (중앙 + 0.45L).
+        lcg_iv = cargo_lcg_interval(bays_x_from_hold(hold), goal.payload_kg,
+                                    goal.payload_kg / max(pv, 1e-9))
+        if lcg_iv is not None and interval is not None:
+            lcb_x, bml = longitudinal_properties(mesh, hydro.draft)
+            x_mid = 0.5 * (mesh.bounds[0][0] + mesh.bounds[1][0])
+            x_prop = x_mid + 0.45 * target_loa
+            fixed_x = (weights.structure_mass * hold.interior_cx
+                       + weights.propulsion_mass * x_prop)
+            lcg_lo = (fixed_x + goal.payload_kg * lcg_iv[0]) \
+                / weights.total_mass
+            lcg_hi = (fixed_x + goal.payload_kg * lcg_iv[1]) \
+                / weights.total_mass
+            kg_mid = (fixed + goal.payload_kg
+                      * 0.5 * (interval[0] + interval[1])) \
+                / weights.total_mass
+            lcg_best = min(max(lcb_x, lcg_lo), lcg_hi)  # LCB에 최대 접근
+            trim_deg = trim_angle_deg(lcg_best, lcb_x, hydro.kb, bml,
+                                      kg_mid)
+            trim_ok = bool(abs(trim_deg) <= TRIM_MAX_DEG)
+        else:
+            trim_deg, trim_ok = float("nan"), False
         gmb = hydro.gm / beam
         margin = min(gmb - GM_BAND[0], GM_BAND[1] - gmb)
         return {**base, "beam": beam, "draft": hydro.draft,
                 "resistance_n": resist.total,
                 "total_mass_kg": weights.total_mass,
-                "stability_margin": margin, "feasible": True, "reason": ""}
+                "stability_margin": margin, "feasible": True,
+                "space_ok": bool(hold.total_volume >= pv),
+                "hold_volume_m3": hold.total_volume,
+                "n_bays": len(hold.boxes),
+                "gm_alloc_ok": bool(gm_alloc_ok),
+                "gm_alloc_margin": gm_alloc_margin,
+                "trim_ok": trim_ok, "trim_deg": trim_deg, "reason": ""}
     except Exception as exc:
         return {**base, "beam": float("nan"), "draft": float("nan"),
                 "resistance_n": float("nan"),
                 "total_mass_kg": float("nan"),
                 "stability_margin": float("nan"),
-                "feasible": False, "reason": str(exc)[:80]}
+                "feasible": False, "space_ok": False,
+                "hold_volume_m3": float("nan"), "n_bays": 0,
+                "gm_alloc_ok": False, "gm_alloc_margin": float("nan"),
+                "trim_ok": False, "trim_deg": float("nan"),
+                "reason": str(exc)[:80]}
 
 
 def _mark_pareto(df: pd.DataFrame) -> pd.DataFrame:
@@ -97,14 +169,17 @@ def screen(goal: GoalSpec, target_loa: float, n_samples: int = 300,
             ok = sum(r["feasible"] for r in rows)
             print(f"  {k + 1}/{n_samples} 평가 — feasible {ok}")
     df = pd.DataFrame(rows)
-    feasible = df[df["feasible"]].reset_index(drop=True)
+    # 파레토 후보 = 중량·안정 AND 공간 AND KG배치 AND 트림 (2026-08-03)
+    candidate = (df["feasible"] & df["space_ok"] & df["gm_alloc_ok"]
+                 & df["trim_ok"])
+    feasible = df[candidate].reset_index(drop=True)
     if feasible.empty:
         return df.assign(pareto=False)
     marked = _mark_pareto(feasible)
     # 탈락 행도 보존 (pareto=False) — 대리모델 타당성 분류 학습에 필수.
     # (초기 버전은 feasible만 저장 → 분류기가 '전부 통과'를 학습하는
     #  결손 라벨 버그가 있었음, 2026-07-28)
-    rejected = df[~df["feasible"]].assign(pareto=False)
+    rejected = df[~candidate].assign(pareto=False)
     return pd.concat([marked, rejected], ignore_index=True)
 
 

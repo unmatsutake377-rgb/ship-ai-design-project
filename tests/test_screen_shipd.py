@@ -62,3 +62,14 @@ def test_single_evaluation_reports_reason_on_failure():
     r = evaluate_shipd_hull(vectors[0], fast_goal, target_loa=3.0)
     assert not r["feasible"]
     assert "반배수량" in r["reason"]
+
+
+def test_space_columns_present(result):
+    """다구획 공간 열 (2026-08-03 재개방): feasible 의미는 보존."""
+    for col in ("space_ok", "hold_volume_m3", "n_bays"):
+        assert col in result.columns
+    ok = result[result["feasible"]]
+    # 파레토 표시는 공간 합격까지 요구
+    assert (result[result["pareto"]]["space_ok"]).all()
+    # 공간 불합격이어도 feasible(중량·안정) 라벨은 살아 있음 (라벨 호환)
+    assert len(ok) >= 1
