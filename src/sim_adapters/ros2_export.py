@@ -305,7 +305,8 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
       <kDotP>0</kDotP>
       <mDotQ>0</mDotQ>
       <nDotR>0</nDotR>
-      <xU>{-c['xu']:.4f}</xU>
+      <xU>{-0.2 * report['resistance']['total'] / max(report['goal']['target_speed_ms'], 1e-6):.4f}</xU>
+      <xUabsU>{-0.8 * report['resistance']['total'] / max(report['goal']['target_speed_ms'], 1e-6) ** 2:.4f}</xUabsU>
       <yV>{-c['yv']:.4f}</yV>
       <zW>{-vp['z_damping']:.4f}</zW>
       <kP>{-vp['k_damping']:.4f}</kP>
@@ -371,7 +372,11 @@ def export_control_yaml(report: dict, out_dir: str | Path,
     # gz 플랜트 보정 (07-30 실측): 파이썬 모델 기준 게인은 gz에서 과공격
     # (모델 불일치 — 부가질량 0·제어 5Hz 지연) → 지그재그 σ 1.5m.
     # 완화 배율 적용 후 σ 0.22m (7배 개선), 완주 유지·가속.
-    GZ_KP_SCALE, GZ_KD_SCALE, GZ_LOOKAHEAD_SCALE = 0.35, 0.5, 1.5
+    # 재튜닝 (2026-08-03, 항력 2차항 세계 기준 7런 스윕): 옛 스케일
+    # (0.35/0.5/1.5)은 미끄러운 선형 세계용 붕대였음 — 정직해진 세계에선
+    # 원설계(1/1/1)가 최적 (σ 1.74→1.31 @1.4 m/s). 잔여 요동의 구조
+    # 원인은 게인이 아니라 "차동 주입 자기지속 루프" (별건 등록).
+    GZ_KP_SCALE, GZ_KD_SCALE, GZ_LOOKAHEAD_SCALE = 1.0, 1.0, 1.0
     kp_psi *= GZ_KP_SCALE
     kd_psi *= GZ_KD_SCALE
     lookahead *= GZ_LOOKAHEAD_SCALE
