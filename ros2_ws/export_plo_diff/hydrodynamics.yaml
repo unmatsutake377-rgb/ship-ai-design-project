@@ -1,0 +1,20 @@
+sign_convention: 모든 계수는 크기(양수). Fossen 방정식 조립 시 감쇠·부가질량에 관례 부호(−)를 적용할 것 — src/sim_adapters/python_sim.step
+  참조
+reference:
+  speed_ms: 6.0
+  extrapolation_warning: true
+  clamped_terms: []
+added_mass:
+  x_dot_u: 4.920923434077995
+  y_dot_v: 54.112465204901625
+  n_dot_r: 18.078828165704177
+linear_damping:
+  xu: 16.803740350757245
+  yv: 243.45312691634606
+  nv: 166.40692230403445
+  nr: 313.12156256498815
+thrusters:
+  count: 2
+  separation_m: 0.64
+  max_thrust_n: 157.9
+  model: T500

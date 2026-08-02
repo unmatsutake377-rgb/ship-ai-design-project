@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="generated_hull">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.255604 0 0.142024" rpy="0 0 0" />
+      <mass value="98.418469" />
+      <inertia ixx="7.716008" iyy="48.225050" izz="55.885117" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://hull/hull.stl" />
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://hull/hull.stl" />
+      </geometry>
+    </collision>
+  </link>
+</robot>

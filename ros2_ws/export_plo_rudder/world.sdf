@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="ship_water">
+    <physics name="default" type="dartsim">
+      <max_step_size>0.005</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-buoyancy-system" name="gz::sim::systems::Buoyancy">
+      <!-- 수상선은 graded 필수: uniform은 잠수함 가정(상시 전부피 부력)이라
+           수면 개념이 없어 모델이 무한 상승함 (2026-07-29 실측: z=45,411km) -->
+      <graded_buoyancy>
+        <default_density>1025</default_density>
+        <density_change>
+          <above_depth>0</above_depth>
+          <density>1</density>
+        </density_change>
+      </graded_buoyancy>
+      <enable>generated_hull</enable>
+    </plugin>
+    <include>
+      <uri>model.sdf</uri>
+      <pose>0 0 0.099357 0 0 0</pose>
+    </include>
+  </world>
+</sdf>
