@@ -56,7 +56,7 @@ class Controller:
         self.prev_wp = (0.0, 0.0)
         self.tick = 0
         self.log = open("/sim/trajectory.csv", "w")
-        self.log.write("t,x,y,yaw,u,tl,tr,delta,wp\n")
+        self.log.write("t,x,y,yaw,u,tl,tr,delta,wp,err,r,moment\n")
 
     def step(self, msg) -> bool:
         """오도메트리 1건 처리. 완주 시 True."""
@@ -103,14 +103,19 @@ class Controller:
 
         moment = cfg["kp_psi"] * ssa(psi_d - psi) - cfg["kd_psi"] * r
         delta = 0.0
-        if cfg.get("steering") == "rudder2":
+        rudder_ok = (cfg.get("steering") in ("rudder2", "rudder1")
+                     and u >= cfg.get("rudder", {}).get("min_speed", 0.0))
+        if rudder_ok:
             # 러더 우선 (스펙 4단계, python 1단계와 같은 법칙):
             # 현재 유속의 각도당 모멘트로 필요 타각 역산, 잔여만 차동.
             rd = cfg["rudder"]
             n_per_rad = (0.5 * 1025.0 * max(u, 0.05) ** 2 * rd["area"]
                          * rd["cla"] * abs(rd["x_pos"]))
-            delta = rd["sign"] * max(-rd["max_rad"],
-                                     min(rd["max_rad"],
+            # 클램프 = 실속각 (max_rad 아님): gz LiftDrag는 실속 밖에서
+            # 양력이 반전됨 (직립 실측 2026-08-03: δ+0.61→yaw −129° vs
+            # +0.25→+112°) — 실속 밖 명령은 조타 역전 + 물리적 낭비
+            delta = rd["sign"] * max(-rd["stall_rad"],
+                                     min(rd["stall_rad"],
                                          moment / max(n_per_rad, 1e-9)))
             d_eff = max(-rd["stall_rad"], min(rd["stall_rad"], delta))
             n_rudder = n_per_rad * d_eff * rd["sign"]
@@ -119,12 +124,24 @@ class Controller:
             # 전속 가속 중 common=천장 → d_max=0 → 저속(러더 무력)
             # 구간에서 조타 실종, 초반 표류. 스로틀 상한을 80%로 눌러
             # 차동 여유를 상시 확보 — 실선 "전타 시 감속" 관행)
-            cap = 0.8 * cfg["thrust_max"]
-            common = max(0.0, min(cap, cfg["kp_u"] * (u_cmd - u)))
-            d_max = min(common + 1e-9, cfg["thrust_max"] - common)
-            diff = max(-d_max, min(d_max,
-                                   moment_res / cfg["thruster_separation"]))
-            tl, tr = common + diff, common - diff
+            if cfg["steering"] == "rudder1":
+                # 구성 B: 단일 추력기 상당 — 차동 보조 없음 (조타 =
+                # 러더 100%), 총추력 천장 = 1발 (좌우 균등 분담)
+                common = max(0.0, min(cfg["thrust_max"] / 2.0,
+                                      cfg["kp_u"] * (u_cmd - u) / 2.0))
+                diff = 0.0
+            else:
+                cap = 0.8 * cfg["thrust_max"]
+                common = max(0.0, min(cap, cfg["kp_u"] * (u_cmd - u)))
+                d_max = min(common + 1e-9, cfg["thrust_max"] - common)
+                diff = max(-d_max,
+                           min(d_max,
+                               moment_res / cfg["thruster_separation"]))
+            # 직립 세계 재캘리브레이션 (2026-08-03 부양 자세 캠페인):
+            # 옛 "왼쪽 강함 = 반시계"는 뒤집힌 배의 실측이었음 — 배가
+            # 뒤집히면 요 축도 뒤집힘. 직립 실측: 좌만 15N → yaw −80°
+            # (시계) → +모멘트는 오른쪽 강함.
+            tl, tr = common - diff, common + diff
             pub_rudder(delta)
         else:
             diff = max(-cfg["thrust_max"],
@@ -133,7 +150,9 @@ class Controller:
             headroom = cfg["thrust_max"] - abs(diff)
             common = max(0.0, min(headroom, cfg["kp_u"] * (u_cmd - u)))
 
-            tl, tr = common + diff, common - diff  # 왼쪽 강함 = 반시계
+            # 직립 재캘리브레이션 (2026-08-03): 좌강 = 시계(−요) 실측
+            # — 옛 반전(b9a9f45)은 뒤집힌 배 기준이었음
+            tl, tr = common - diff, common + diff
             if min(tl, tr) < 0:  # 후진 금지 — 모멘트 보존 상향
                 shift = -min(tl, tr)
                 tl += shift
@@ -145,8 +164,10 @@ class Controller:
         pub_thrust("right", tr)
         st = msg.get("header", {}).get("stamp", {})
         t_sim = float(st.get("sec", 0)) + float(st.get("nsec", 0)) * 1e-9
+        err_dbg = ssa(psi_d - psi)
         self.log.write(f"{t_sim:.1f},{x:.3f},{y:.3f},{psi:.3f},{u:.3f},"
-                       f"{tl:.1f},{tr:.1f},{delta:.3f},{self.wp_index}\n")
+                       f"{tl:.1f},{tr:.1f},{delta:.3f},{self.wp_index},"
+                       f"{err_dbg:.3f},{r:.3f},{moment:.1f}\n")
         self.log.flush()
         return False
 
