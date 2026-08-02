@@ -185,7 +185,15 @@ def _entrance_angle_deg(mesh: trimesh.Trimesh, draft: float) -> float:
     from src.physics.resistance import hull_offsets
 
     xs, zs, y_half = hull_offsets(mesh, draft, n_x=40, n_z=8)
-    wl = y_half[:, -1]                       # 수선 근처 반폭
+    # 맨 위 표본(z=흘수)은 절단 캡 평면과 정확히 겹쳐 스캔라인이
+    # 퇴화할 수 있음 (v3 흘수 변경으로 발현 실측) — 수면 바로 아래
+    # 표본 사용, 그마저 0이면 그 아래로 후퇴
+    wl = y_half[:, -2]
+    if float(np.max(wl)) <= 0.0:
+        for k in range(y_half.shape[1] - 3, -1, -1):
+            wl = y_half[:, k]
+            if float(np.max(wl)) > 0.0:
+                break
     span = float(xs[-1] - xs[0])
     margin = 1e-4 * span                     # hull_offsets의 끝단 여백
     n_bow = max(2, len(xs) // 10)
