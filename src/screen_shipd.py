@@ -52,13 +52,35 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
         # 단일 상자 보류(과혹)를 다구획+예약 절단으로 대체. 라벨 호환을
         # 위해 feasible(중량·안정)은 그대로 두고 space_ok를 별도 열로 —
         # 기존 1만 라벨과 의미가 섞이지 않게 (파레토는 둘 다 요구).
-        from src.physics.cargo_hold import multibay_hold, reserved_volume_for
+        from src.physics.cargo_hold import (
+            bays_from_hold,
+            cargo_kg_interval,
+            gm_band_reachable,
+            multibay_hold,
+            reserved_volume_for,
+        )
         from src.physics.maxbox import payload_volume_for
 
         pv, _ = payload_volume_for(goal.payload_kg, goal.purpose)
         hold = multibay_hold(mesh, depth,
                              reserved_volume_for(weights.propulsion_mass),
                              stern="xmax")   # Ship-D 관례: 뱃머리 x=0
+        # 2단계 구간 판정: 짐을 실제 구획에 부었을 때 도달 가능한
+        # KG 구간이 GM 밴드와 겹치나 — 합격 배치의 존재 판정.
+        # (기존 stability_margin은 "짐 VCG=0.6D 가정" 한 점 평가 —
+        #  라벨 호환 위해 보존, 구간 판정은 별도 열)
+        interval = cargo_kg_interval(bays_from_hold(hold), goal.payload_kg,
+                                     goal.payload_kg / max(pv, 1e-9))
+        if interval is not None:
+            a = weights.assumptions
+            fixed = (weights.structure_mass * a["vcg_structure"]
+                     + weights.propulsion_mass * a["vcg_propulsion"])
+            gm_alloc_ok, gm_alloc_margin = gm_band_reachable(
+                interval[0], interval[1], km=hydro.kb + hydro.bm,
+                fixed_moment=fixed, cargo_mass=goal.payload_kg,
+                total_mass=weights.total_mass, beam=beam, band=GM_BAND)
+        else:
+            gm_alloc_ok, gm_alloc_margin = False, float("nan")
         gmb = hydro.gm / beam
         margin = min(gmb - GM_BAND[0], GM_BAND[1] - gmb)
         return {**base, "beam": beam, "draft": hydro.draft,
@@ -67,7 +89,9 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
                 "stability_margin": margin, "feasible": True,
                 "space_ok": bool(hold.total_volume >= pv),
                 "hold_volume_m3": hold.total_volume,
-                "n_bays": len(hold.boxes), "reason": ""}
+                "n_bays": len(hold.boxes),
+                "gm_alloc_ok": bool(gm_alloc_ok),
+                "gm_alloc_margin": gm_alloc_margin, "reason": ""}
     except Exception as exc:
         return {**base, "beam": float("nan"), "draft": float("nan"),
                 "resistance_n": float("nan"),
@@ -75,6 +99,7 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
                 "stability_margin": float("nan"),
                 "feasible": False, "space_ok": False,
                 "hold_volume_m3": float("nan"), "n_bays": 0,
+                "gm_alloc_ok": False, "gm_alloc_margin": float("nan"),
                 "reason": str(exc)[:80]}
 
 
@@ -108,8 +133,8 @@ def screen(goal: GoalSpec, target_loa: float, n_samples: int = 300,
             ok = sum(r["feasible"] for r in rows)
             print(f"  {k + 1}/{n_samples} 평가 — feasible {ok}")
     df = pd.DataFrame(rows)
-    # 파레토 후보 = 중량·안정 합격 AND 공간 합격 (다구획, 2026-08-03)
-    candidate = df["feasible"] & df["space_ok"]
+    # 파레토 후보 = 중량·안정 AND 공간 AND 배치 존재 (2026-08-03)
+    candidate = df["feasible"] & df["space_ok"] & df["gm_alloc_ok"]
     feasible = df[candidate].reset_index(drop=True)
     if feasible.empty:
         return df.assign(pareto=False)

@@ -168,3 +168,101 @@ def multibay_hold(mesh: trimesh.Trimesh, depth: float,
     return HoldReport(boxes=boxes, total_volume=total,
                       reserved_volume=reserved_volume,
                       stern_cut_x=stern_cut_x, z0=z0)
+
+
+# ── 2단계: KG/GM 구간 판정 (스펙 §3) ─────────────────────────────
+#
+# 짐을 구획들에 나누는 비율에 따라 짐 무게중심(KG_c)이 움직인다.
+# 채움 물리: 구획에 부은 짐은 바닥부터 h_i = m_i/(ρ·A_i)로 차오름
+# (균질 주입 근사) → 그 몫의 중심 = z0 + h_i/2.
+#   최저 KG_c = 균일 수위 (전 구획에 얇게 폄)
+#   최고 KG_c = 바닥면적 작은 구획부터 기둥으로 쌓기 (그리디 —
+#               같은 부피로 가장 높은 기둥을 만드는 순서)
+# 총 KG는 짐 KG의 1차 함수 → 구간 끝점이 그대로 사상. GM = KM − KG
+# 도 1차 → "GM/B 도달 구간 ∩ 합격 밴드 ≠ ∅" 겹침 검사로 존재 판정.
+
+
+@dataclass(frozen=True)
+class BayGeom:
+    """구간 판정용 구획 기하 (바닥면적·바닥 높이·천장까지 높이)."""
+    floor_area: float   # [m²]
+    z0: float           # 바닥 높이 (킬 기준) [m]
+    height: float       # 구획 높이 [m]
+
+
+def bays_from_hold(hold: HoldReport) -> list[BayGeom]:
+    """HoldReport → 구간 판정용 기하 (z0·높이는 전 구획 공유)."""
+    return [BayGeom(floor_area=b.length * b.width, z0=b.z0,
+                    height=b.height) for b in hold.boxes]
+
+
+def cargo_kg_interval(bays: list[BayGeom], payload_kg: float,
+                      density: float) -> tuple[float, float] | None:
+    """짐 무게중심 높이 도달 구간 [최저, 최고]. 용량 초과면 None."""
+    if not bays or payload_kg <= 0.0:
+        return None
+    vol_need = payload_kg / density
+    caps = [b.floor_area * b.height for b in bays]
+    if vol_need > sum(caps) * (1.0 + 1e-9):
+        return None
+
+    # 최저: 균일 수위 — 낮은 천장 구획이 먼저 차면 넘치는 몫을 나머지에
+    # (여기선 z0·height 공유 가정이라 단순 수위 계산으로 충분하지만,
+    #  일반형으로 구현: 수위를 이분 탐색)
+    zs0 = min(b.z0 for b in bays)
+    lo_lv, hi_lv = 0.0, max(b.z0 + b.height for b in bays) - zs0
+    for _ in range(60):
+        mid = 0.5 * (lo_lv + hi_lv)
+        filled = sum(b.floor_area * min(max(mid - (b.z0 - zs0), 0.0),
+                                        b.height) for b in bays)
+        if filled < vol_need:
+            lo_lv = mid
+        else:
+            hi_lv = mid
+    level = zs0 + hi_lv
+    m_tot = 0.0
+    zm_tot = 0.0
+    for b in bays:
+        h = min(max(level - b.z0, 0.0), b.height)
+        m = b.floor_area * h * density
+        m_tot += m
+        zm_tot += m * (b.z0 + h / 2.0)
+    kg_min = zm_tot / max(m_tot, 1e-12)
+
+    # 최고: 바닥면적 오름차순으로 꽉꽉 채움 (좁은 기둥 우선)
+    remain = vol_need
+    m_tot = 0.0
+    zm_tot = 0.0
+    for b in sorted(bays, key=lambda b: b.floor_area):
+        v = min(remain, b.floor_area * b.height)
+        if v <= 0.0:
+            break
+        h = v / b.floor_area
+        m = v * density
+        m_tot += m
+        zm_tot += m * (b.z0 + h / 2.0)
+        remain -= v
+    kg_max = zm_tot / max(m_tot, 1e-12)
+    return float(kg_min), float(kg_max)
+
+
+def gm_band_reachable(cargo_kg_lo: float, cargo_kg_hi: float, km: float,
+                      fixed_moment: float, cargo_mass: float,
+                      total_mass: float, beam: float,
+                      band: tuple[float, float]
+                      ) -> tuple[bool, float]:
+    """GM/B 밴드 겹침 판정 → (합격 배치 존재?, 최선 여유).
+
+    fixed_moment = Σ(짐 외 성분 질량 × 그 VCG) [kg·m].
+    총 KG(k) = (fixed_moment + 짐질량·k)/총질량, GM = KM − KG.
+    여유 = 도달 구간 안에서 만들 수 있는 최대 밴드 여유 (음수 = 불합격,
+    크기는 밴드까지 거리)."""
+    kg_lo = (fixed_moment + cargo_mass * cargo_kg_lo) / total_mass
+    kg_hi = (fixed_moment + cargo_mass * cargo_kg_hi) / total_mass
+    gmb_hi = (km - kg_lo) / beam          # 짐 낮게 = GM 크게
+    gmb_lo = (km - kg_hi) / beam
+    lo, hi = band
+    # 도달 구간 [gmb_lo, gmb_hi] 안에서 밴드 중앙에 최대한 접근
+    best = min(max((lo + hi) / 2.0, gmb_lo), gmb_hi)
+    margin = min(best - lo, hi - best)
+    return bool(margin >= 0.0), float(margin)
