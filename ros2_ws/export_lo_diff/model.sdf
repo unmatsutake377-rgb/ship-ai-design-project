@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="generated_hull">
+    <link name="base_link">
+      <inertial>
+        <pose>0.000000 0 0.032123 0 0 0</pose>
+        <mass>148.468684</mass>
+        <inertia>
+          <ixx>17.683132</ixx><iyy>36.088024</iyy><izz>36.088024</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="hull_collision">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <geometry><box><size>1.9721 0.9860 0.4303</size></box></geometry>
+      </collision>
+      <visual name="hull_visual">
+        <pose>0 0 -0.215136 0 0 0</pose>
+        <geometry><mesh><uri>hull.stl</uri></mesh></geometry>
+      </visual>
+    </link>
+    <link name="left_prop">
+      <pose>-0.8874 0.3944 -0.1951 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="left_prop_visual">
+        <!-- 시각만 회전 — 링크를 돌리면 조인트 축(=추력 방향)이 수직이 됨
+             (07-29 실측: 전진 불능·표류의 원인) -->
+        <pose>0 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.04</radius><length>0.02</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="left_prop_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>left_prop</child>
+      <axis><xyz>1 0 0</xyz></axis>
+    </joint>
+    <plugin filename="gz-sim-thruster-system" name="gz::sim::systems::Thruster">
+      <namespace>generated_hull</namespace>
+      <joint_name>left_prop_joint</joint_name>
+      <thrust_coefficient>0.004</thrust_coefficient>
+      <fluid_density>1025</fluid_density>
+      <propeller_diameter>0.08</propeller_diameter>
+    </plugin>
+    <link name="right_prop">
+      <pose>-0.8874 -0.3944 -0.1951 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="right_prop_visual">
+        <!-- 시각만 회전 — 링크를 돌리면 조인트 축(=추력 방향)이 수직이 됨
+             (07-29 실측: 전진 불능·표류의 원인) -->
+        <pose>0 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.04</radius><length>0.02</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="right_prop_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>right_prop</child>
+      <axis><xyz>1 0 0</xyz></axis>
+    </joint>
+    <plugin filename="gz-sim-thruster-system" name="gz::sim::systems::Thruster">
+      <namespace>generated_hull</namespace>
+      <joint_name>right_prop_joint</joint_name>
+      <thrust_coefficient>0.004</thrust_coefficient>
+      <fluid_density>1025</fluid_density>
+      <propeller_diameter>0.08</propeller_diameter>
+    </plugin>
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_publish_frequency>10</odom_publish_frequency>
+    </plugin>
+    <plugin filename="gz-sim-hydrodynamics-system"
+            name="gz::sim::systems::Hydrodynamics">
+      <link_name>base_link</link_name>
+      <xDotU>0</xDotU>
+      <yDotV>0</yDotV>
+      <zDotW>0</zDotW>
+      <kDotP>0</kDotP>
+      <mDotQ>0</mDotQ>
+      <nDotR>0</nDotR>
+      <xU>-3.8500</xU>
+      <xUabsU>-10.2666</xUabsU>
+      <yV>-157.6815</yV>
+      <zW>-2667.6441</zW>
+      <kP>-131.8639</kP>
+      <mQ>-748.7305</mQ>
+      <nR>-54.6534</nR>
+    </plugin>
+  </model>
+</sdf>

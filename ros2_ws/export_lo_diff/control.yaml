@@ -1,0 +1,26 @@
+u_desired: 0.77
+kp_psi: 155.1753412328745
+kd_psi: 130.29850986433235
+kp_u: 124.71369453807283
+lookahead: 7.888312492483622
+accept_radius: 1.9720781231209055
+slowdown_radius: 3.944156246241811
+slowdown_min_fraction: 0.6
+thrust_max: 51.5
+thruster_separation: 0.7888312492483622
+design_info:
+  kp_frac: 6.0
+  lookahead_over_l: 4.0
+  kd_over_iz: 7.5
+  max_eig_real: -0.2408914815860122
+  stable: true
+waypoints:
+- - 19.720781231209056
+  - 0.0
+- - 19.720781231209056
+  - 19.720781231209056
+- - 0.0
+  - 19.720781231209056
+- - 0.0
+  - 0.0
+steering: diff
