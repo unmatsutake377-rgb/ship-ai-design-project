@@ -373,13 +373,21 @@ def simulate_waypoints_rudder(vessel: VesselModel,
     """
     from src.sim_adapters.rudder import (
         RUDDER_MAX_RAD,
+        SERVO_RATE_RAD_S,
         RudderModel,
         rudder_moment,
     )
 
     if rudder is None:
-        # 개략 러더 (흘수 ≈ 0.15L 근사 — 실물 스펙 수집 전)
-        rudder = RudderModel.for_vessel(vessel.loa, 0.15 * vessel.loa)
+        # 러더 사이징 (3단계): DNV 최소 + 요구 모멘트 역산 중 큰 쪽.
+        # 요구 모멘트 = 차동 등가 (게인 설계 기준), 설계 속도 = 코너
+        # 최저 운용 속도. 폭은 추력기 간격에서 복원, 흘수는 0.15L
+        # 근사 (VesselModel에 흘수 없음 — 남은 개략, 정직 표기)
+        beam = vessel.thruster_sep / THRUSTER_SEP_OVER_B
+        rudder = RudderModel.for_vessel(
+            vessel.loa, 0.15 * vessel.loa, beam=beam,
+            required_moment=vessel.thrust_max * vessel.thruster_sep,
+            u_design=SLOWDOWN_MIN_FRACTION * u_desired)
 
     accept = ACCEPT_RADIUS_OVER_L * vessel.loa
     kp_psi, kd_psi, lookahead, design_info = design_gains(vessel, u_desired)
@@ -389,7 +397,10 @@ def simulate_waypoints_rudder(vessel: VesselModel,
     result = SimResult()
     result.control_design = {**design_info,
                              "steering": ("single+rudder" if single_thruster
-                                          else "diff2+rudder")}
+                                          else "diff2+rudder"),
+                             "rudder_area_m2": round(rudder.area, 4),
+                             "rudder_x_pos_m": round(rudder.x_pos, 3)}
+    delta = 0.0            # 타각 상태 (서보 속도 한계 적용 대상)
     wp_index = 0
     prev_wp = (0.0, 0.0)
     steps = int(t_max / dt)
@@ -425,10 +436,13 @@ def simulate_waypoints_rudder(vessel: VesselModel,
                                           SLOWDOWN_MIN_FRACTION, 1.0))
 
         moment_cmd = kp_psi * ssa(psi_d - psi) - kd_psi * r
-        # ① 러더가 우선 부담: 현재 유속에서 각도당 모멘트 → 필요 타각
+        # ① 러더가 우선 부담: 현재 유속에서 각도당 모멘트 → 필요 타각.
+        #    서보 속도 한계(실측 375°/s 무부하)로 타각 변화율 제한.
         n_per_rad = abs(rudder_moment(rudder, u, 0.01)) / 0.01
-        delta = float(np.clip(moment_cmd / max(n_per_rad, 1e-9),
-                              -RUDDER_MAX_RAD, RUDDER_MAX_RAD))
+        delta_cmd = float(np.clip(moment_cmd / max(n_per_rad, 1e-9),
+                                  -RUDDER_MAX_RAD, RUDDER_MAX_RAD))
+        rate = SERVO_RATE_RAD_S * dt
+        delta = float(np.clip(delta_cmd, delta - rate, delta + rate))
         n_rudder = rudder_moment(rudder, u, delta)
         # ② 잔여 모멘트: 구성 A는 차동 보조, 구성 B는 없음 (러더뿐)
         if single_thruster:
