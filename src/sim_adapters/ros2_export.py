@@ -535,6 +535,10 @@ def export_control_yaml(report: dict, out_dir: str | Path,
             # 부호: gz LiftDrag 방향 규약은 스텝 실험으로 검정 —
             # 뒤집히면 여기만 −1 (컨트롤러가 곱해 씀)
             "sign": 1.0,
+            # gz 저속 러더 반전 아티팩트 (2026-08-03 직립 실측:
+            # δ+0.15 → u0.77에서 yaw −83° / u1.37에서 +112°) —
+            # 문턱 아래는 차동 조타 (구성 A 저속 철학과 일치)
+            "min_speed": 1.1,
         }
     path = out / "control.yaml"
     with open(path, "w") as f:

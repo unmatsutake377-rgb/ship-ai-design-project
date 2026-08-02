@@ -56,7 +56,7 @@ class Controller:
         self.prev_wp = (0.0, 0.0)
         self.tick = 0
         self.log = open("/sim/trajectory.csv", "w")
-        self.log.write("t,x,y,yaw,u,tl,tr,delta,wp\n")
+        self.log.write("t,x,y,yaw,u,tl,tr,delta,wp,err,r,moment\n")
 
     def step(self, msg) -> bool:
         """오도메트리 1건 처리. 완주 시 True."""
@@ -103,7 +103,9 @@ class Controller:
 
         moment = cfg["kp_psi"] * ssa(psi_d - psi) - cfg["kd_psi"] * r
         delta = 0.0
-        if cfg.get("steering") in ("rudder2", "rudder1"):
+        rudder_ok = (cfg.get("steering") in ("rudder2", "rudder1")
+                     and u >= cfg.get("rudder", {}).get("min_speed", 0.0))
+        if rudder_ok:
             # 러더 우선 (스펙 4단계, python 1단계와 같은 법칙):
             # 현재 유속의 각도당 모멘트로 필요 타각 역산, 잔여만 차동.
             rd = cfg["rudder"]
@@ -162,8 +164,10 @@ class Controller:
         pub_thrust("right", tr)
         st = msg.get("header", {}).get("stamp", {})
         t_sim = float(st.get("sec", 0)) + float(st.get("nsec", 0)) * 1e-9
+        err_dbg = ssa(psi_d - psi)
         self.log.write(f"{t_sim:.1f},{x:.3f},{y:.3f},{psi:.3f},{u:.3f},"
-                       f"{tl:.1f},{tr:.1f},{delta:.3f},{self.wp_index}\n")
+                       f"{tl:.1f},{tr:.1f},{delta:.3f},{self.wp_index},"
+                       f"{err_dbg:.3f},{r:.3f},{moment:.1f}\n")
         self.log.flush()
         return False
 
