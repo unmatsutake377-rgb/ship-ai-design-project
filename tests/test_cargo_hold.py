@@ -184,3 +184,58 @@ def test_cargo_lcg_interval_overflow_none():
 
     bays = [BayGeomX(x_center=1.0, cap_volume=0.01)]
     assert cargo_lcg_interval(bays, payload_kg=100.0, density=600.0) is None
+
+
+def test_pack_bays_z_per_bay_bands():
+    """구획별 z 차등 손계산: 계단 지형도.
+
+    x 0~1 m (5칸)는 아래 2개 z층만 넓고(반폭 0.5) 위층 0,
+    x 1~2 m는 전 4층 넓음. dz=0.1, dx=0.2.
+    - 공유 z라면: 전층 쓰면 왼쪽이 0 → 오른쪽만 (1.0×1.0×0.4=0.4)
+      or 아래 2층 전폭 (2.0×1.0×0.2=0.4) — 최대 0.4
+    - 구획별 z: 오른쪽 전층 0.4 + 왼쪽 아래띠 1.0×1.0×0.2=0.2 → 0.6"""
+    import numpy as np
+
+    from src.physics.cargo_hold import pack_bays_z
+
+    w = np.zeros((10, 4))
+    w[:5, :2] = 0.5          # 왼쪽: 아래 2층만
+    w[5:, :] = 0.5           # 오른쪽: 전층
+    mask = np.ones(10, dtype=bool)
+    boxes = pack_bays_z(w, dx=0.2, zs=np.array([0.05, 0.15, 0.25, 0.35]),
+                        dz=0.1, mask=mask, min_dim=0.15)
+    total = sum(b[3] for b in boxes)
+    assert total == pytest.approx(0.6, rel=1e-6)
+    assert len(boxes) == 2
+    heights = sorted(round(b[2], 2) for b in boxes)
+    assert heights == [0.2, 0.4]      # 왼쪽 낮은 띠 + 오른쪽 전층
+
+
+def test_pack_bays_z_uniform_field_single_bay():
+    """균일 지형도 = 구획 1개 전층 (기존 결과와 동일 — 무회귀)."""
+    import numpy as np
+
+    from src.physics.cargo_hold import pack_bays_z
+
+    w = np.full((10, 4), 0.5)
+    boxes = pack_bays_z(w, dx=0.2, zs=np.array([0.05, 0.15, 0.25, 0.35]),
+                        dz=0.1, mask=np.ones(10, dtype=bool), min_dim=0.15)
+    assert len(boxes) == 1
+    assert boxes[0][3] == pytest.approx(2.0 * 1.0 * 0.4)
+
+
+def test_pack_bays_z_respects_max_bays():
+    """구획 수 상한: 로브 6개 아령렬 지형도라도 상한 개수만 채택."""
+    import numpy as np
+
+    from src.physics.cargo_hold import pack_bays_z
+
+    w = np.zeros((30, 4))
+    for k in range(6):                 # 로브 6개 (사이 허리 0)
+        w[k * 5:k * 5 + 4, :] = 0.5
+    boxes = pack_bays_z(w, dx=0.2, zs=np.array([0.05, 0.15, 0.25, 0.35]),
+                        dz=0.1, mask=np.ones(30, dtype=bool),
+                        min_dim=0.15, max_bays=3)
+    assert len(boxes) <= 3
+    assert sum(b[3] for b in boxes) == pytest.approx(3 * 0.8 * 1.0 * 0.4,
+                                                     rel=1e-6)

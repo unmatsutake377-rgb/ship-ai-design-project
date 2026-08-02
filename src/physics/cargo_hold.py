@@ -37,6 +37,12 @@ RESERVE_PACKING_FACTOR = 3.0
 # 들어가므로 합산 금지 (과혹→과관대 반전 방지, 스펙 §2).
 MIN_BOX_DIM = 0.25
 
+# 구획 수 상한 — 소형정 관행 개략 (앞/중/뒤+예비). 구획별 z 차등
+# DP가 상한 없이는 3 m 보트에 9칸을 세우는 과관대 실측 (2026-08-03,
+# 칸막이 중량·공사는 미모형이므로 개수로 현실성 방어 — 종잇장 가드와
+# 같은 철학). #17 실선 수집으로 승격 대상.
+MAX_BAYS = 4
+
 
 @dataclass(frozen=True)
 class HoldReport:
@@ -78,6 +84,87 @@ def pack_bays(half_widths: list[float], dx: float, height: float,
         i0, i1 = int(round(x0 / dx)), int(round(x1 / dx))
         for i in range(i0, i1):
             w[i] = 0.0
+    return boxes
+
+
+def pack_bays_z(w_xz: np.ndarray, dx: float, zs: np.ndarray, dz: float,
+                mask: np.ndarray, min_dim: float = MIN_BOX_DIM,
+                max_bays: int = MAX_BAYS) -> list[tuple]:
+    """구획별 [z0, z1] 차등 채우기 — x-분할 DP (최적 보장).
+
+    모형: 구획은 x-구간 분할 (세로 칸막이 원칙 — 수직 적층은 범위 밖),
+    각 구획이 자기만의 z-띠를 고름. 그리디는 "낮고 넓은 상자"가
+    동점에서 전 구간을 선점하는 함정 (계단 지형도 실측 0.4 < 최적
+    0.6) — 분할 DP로 교체: 구간값 v[i,j] = 그 x-구간의 최적 띠 부피,
+    best[j] = max(best[j-1], max_i best[i] + v[i,j-1]).
+    반환: (길이, 폭, 높이, 부피, x0, x1, z0_abs) 목록."""
+    n_x, n_z = w_xz.shape
+
+    # 구간값: v[i][j] = 셀 i..j(포함)를 한 구획으로 쓸 때 최적 부피
+    NEG = (0.0, 0, 0)          # (부피, iz0, iz1)
+    val = [[NEG] * n_x for _ in range(n_x)]
+    for i in range(n_x):
+        if not mask[i]:
+            continue
+        run_min = w_xz[i].copy()
+        for j in range(i, n_x):
+            if not mask[j]:
+                break
+            if j > i:
+                run_min = np.minimum(run_min, w_xz[j])
+            length = (j - i + 1) * dx
+            if length < min_dim:
+                continue
+            best_v = NEG
+            for iz0 in range(n_z):
+                m = float("inf")
+                for iz1 in range(iz0, n_z):
+                    m = min(m, float(run_min[iz1]))
+                    height = float(zs[iz1] - zs[iz0]) + dz
+                    width = 2.0 * m
+                    if height < min_dim or width < min_dim:
+                        continue
+                    vol = length * width * height
+                    if vol > best_v[0]:
+                        best_v = (vol, iz0, iz1)
+            val[i][j] = best_v
+
+    # 분할 DP (구획 수 차원 포함) + 경로 복원. SPLIT_EPS = 칸막이
+    # 1개당 미세 벌점 — 부피 동점이면 구획 적은 분할 선택.
+    SPLIT_EPS = 1e-9
+    K = max_bays
+    best = [[0.0] * (K + 1) for _ in range(n_x + 1)]
+    choice: list = [[None] * (K + 1) for _ in range(n_x + 1)]
+    for j in range(n_x):
+        for k in range(K + 1):
+            best[j + 1][k] = best[j][k]
+            choice[j + 1][k] = None
+            if k == 0:
+                continue
+            for i in range(j + 1):
+                cand = best[i][k - 1] + val[i][j][0] - SPLIT_EPS
+                if val[i][j][0] > 0.0 and cand > best[j + 1][k]:
+                    best[j + 1][k] = cand
+                    choice[j + 1][k] = (i, j)
+
+    boxes = []
+    j, k = n_x, K
+    while j > 0 and k > 0:
+        if choice[j][k] is None:
+            j -= 1
+            continue
+        i, j1 = choice[j][k]
+        vol, iz0, iz1 = val[i][j1]
+        # 최소 부피 구간으로 축약: 같은 띠에서 더 짧아도 부피 동일한
+        # 경우는 없음 (부피 ∝ 길이) — 구간 그대로 상자화
+        length = (j1 - i + 1) * dx
+        height = float(zs[iz1] - zs[iz0]) + dz
+        width = vol / (length * height)
+        boxes.append((length, width, height, vol,
+                      i * dx, (j1 + 1) * dx, float(zs[iz0]) - dz / 2.0))
+        j = i
+        k -= 1
+    boxes.reverse()
     return boxes
 
 
@@ -145,33 +232,24 @@ def multibay_hold(mesh: trimesh.Trimesh, depth: float,
         keep = slice(cut_idx + 1, n_x)
         stern_cut_x = float(xmin + (cut_idx + 1) * dx)
 
-    # ② 상자 천장 자유화 ([z0, z1] 2중 스캔) — 단일 MaxBox의 "천장 =
-    # 갑판" 가정은 위로 좁아지는 Ship-D 선형에서 반폭을 0으로 몰아
-    # 과혹의 진범이었음 (2026-08-03 실측: 갑판층 내부율 8%).
+    # ② 구획별 [z0, z1] 차등 채우기 (2026-08-03 후속 확장) —
+    # 천장=갑판 가정 해제에 이어 바닥·천장을 구획마다 따로 고름.
     # 정직 한계: 해치(짐 넣는 구멍) 접근성은 무시 — 균질 주입 근사.
     mask = np.zeros(n_x, dtype=bool)
     mask[keep] = True
-    best: tuple[list, float, float] = ([], 0.0, float(zs[0]))
-    for iz0 in range(n_z):
-        for iz1 in range(iz0, n_z):
-            w_eff = w_xz[:, iz0:iz1 + 1].min(axis=1).copy()
-            w_eff[~mask] = 0.0
-            height = float(zs[iz1] - zs[iz0]) + dz
-            bays = pack_bays(list(w_eff), dx, height, min_dim=min_dim)
-            total = sum(b[3] for b in bays)
-            if total > best[1]:
-                best = (bays, total, float(zs[iz0]))
+    bays = pack_bays_z(w_xz, dx, zs, dz, mask, min_dim=min_dim)
 
-    bays, total, z0 = best
+    total = sum(b[3] for b in bays)
     boxes = tuple(
         BoxReport(length=b[0], width=b[1], height=b[2], volume=b[3],
-                  x0=xmin + b[4], x1=xmin + b[5], z0=z0)
+                  x0=xmin + b[4], x1=xmin + b[5], z0=b[6])
         for b in bays)
+    z0_min = min((b[6] for b in bays), default=float(zs[0]))
     iv = float(col_vol.sum())
     icx = float((col_vol * xs).sum() / iv) if iv > 0 else float(xmin)
     return HoldReport(boxes=boxes, total_volume=total,
                       reserved_volume=reserved_volume,
-                      stern_cut_x=stern_cut_x, z0=z0,
+                      stern_cut_x=stern_cut_x, z0=z0_min,
                       interior_volume=iv, interior_cx=icx)
 
 
