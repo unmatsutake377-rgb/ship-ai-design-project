@@ -196,3 +196,50 @@ def trim_angle_deg(lcg_x: float, lcb_x: float, kb: float, bml: float,
     if gml <= 1e-9:
         return float("inf")
     return math.degrees((lcg_x - lcb_x) / gml)
+
+
+def free_trim_equilibrium(mesh: trimesh.Trimesh, mass_kg: float,
+                          lcg_x: float, kg: float,
+                          rho: float = RHO_SEAWATER,
+                          max_deg: float = 20.0,
+                          iters: int = 22) -> float:
+    """자유 자세 트림 평형각 [deg] — 2변수(침하+트림) 완전판.
+
+    소각 선형(trim_angle_deg)의 대각 보강: 주어진 트림각으로 선체를
+    통째 회전시킨 뒤 ① 수평 물면에서 배수량 평형 흘수를 풀고
+    ② 부심이 무게중심 바로 아래(같은 x)에 오는 각을 이분법으로 찾는다
+    — "물에 띄워 보고 기울여 가며 균형점 찾기"의 수치판.
+    부호는 소각 이론과 동일 (+x 쪽 무거우면 +). 해 없으면(비정상
+    복원) ±max_deg 경계값 반환 — 호출측은 한계 초과로 판정하면 됨."""
+    cg = np.array([lcg_x, 0.0, kg])
+
+    def residual(theta_rad: float) -> float:
+        # 선체·무게중심을 θ로 함께 회전 → 물면은 수평 유지
+        # (부호는 소각 이론과 맞춤 — 상자 선체 대조로 검정, 아래 시험)
+        rot = trimesh.transformations.rotation_matrix(
+            theta_rad, [0.0, 1.0, 0.0], point=[0.0, 0.0, 0.0])
+        m = mesh.copy()
+        m.apply_transform(rot)
+        draft = equilibrium_draft(m, mass_kg, rho)
+        lcb = float(immersed_mesh(m, draft).center_mass[0])
+        cg_r = (rot[:3, :3] @ cg)
+        return lcb - float(cg_r[0])    # 부심이 무게중심 뒤(−x)면 음수
+
+    lo, hi = math.radians(-max_deg), math.radians(max_deg)
+    try:
+        r_lo, r_hi = residual(lo), residual(hi)
+    except SinksError:
+        return float(max_deg)
+    if r_lo * r_hi > 0.0:              # 괄호 실패 — 복원 불가 영역
+        return math.copysign(max_deg, r_lo)
+    for _ in range(iters):
+        mid = 0.5 * (lo + hi)
+        try:
+            r_mid = residual(mid)
+        except SinksError:
+            return float(max_deg)
+        if r_lo * r_mid <= 0.0:
+            hi, r_hi = mid, r_mid
+        else:
+            lo, r_lo = mid, r_mid
+    return math.degrees(0.5 * (lo + hi))

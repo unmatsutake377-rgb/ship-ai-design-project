@@ -89,7 +89,8 @@ def pack_bays(half_widths: list[float], dx: float, height: float,
 
 def pack_bays_z(w_xz: np.ndarray, dx: float, zs: np.ndarray, dz: float,
                 mask: np.ndarray, min_dim: float = MIN_BOX_DIM,
-                max_bays: int = MAX_BAYS) -> list[tuple]:
+                max_bays: int = MAX_BAYS,
+                require_hatch: bool = True) -> list[tuple]:
     """구획별 [z0, z1] 차등 채우기 — x-분할 DP (최적 보장).
 
     모형: 구획은 x-구간 분할 (세로 칸막이 원칙 — 수직 적층은 범위 밖),
@@ -97,21 +98,44 @@ def pack_bays_z(w_xz: np.ndarray, dx: float, zs: np.ndarray, dz: float,
     동점에서 전 구간을 선점하는 함정 (계단 지형도 실측 0.4 < 최적
     0.6) — 분할 DP로 교체: 구간값 v[i,j] = 그 x-구간의 최적 띠 부피,
     best[j] = max(best[j-1], max_i best[i] + v[i,j-1]).
-    반환: (길이, 폭, 높이, 부피, x0, x1, z0_abs) 목록."""
+    반환: (길이, 폭, 높이, 부피, x0, x1, z0_abs) 목록.
+
+    require_hatch (해치 접근성, 2026-08-03 후속): 천장이 갑판에 안
+    닿는 상자는 그 위 목(neck)을 통해 짐을 내려보내야 함 — 상자
+    x-구간 안에 "천장부터 갑판까지 폭·길이 ≥ min_dim인 수직 통로
+    (해치 창)"가 존재해야 채택. 맨 위층 포함 상자는 면제 (갑판 = 입구)."""
     n_x, n_z = w_xz.shape
+
+    # 해치 가능 셀: hatch_cell[x, iz1] = iz1 위 전 층이 "통과 가능" —
+    # 층별로 (반폭 0 = 선체 없음·하늘 열림 → 통과) or (폭 ≥ min_dim →
+    # 선체 안 통로). 막힘 = 0 < 폭 < min_dim 좁은 목(tumblehome)만.
+    # 정직 한계: 갑판 뚜껑은 미모형 (선체 표면만) — 뚜껑 있는 배는
+    # 해치 위치를 따로 설계해야 함. 맨 위층 천장은 항상 통과.
+    hatch_cell = np.ones((n_x, n_z), dtype=bool)
+    if require_hatch:
+        for iz1 in range(n_z - 1):
+            above = w_xz[:, iz1 + 1:]
+            passable = (above <= 1e-12) | (2.0 * above >= min_dim)
+            hatch_cell[:, iz1] = passable.all(axis=1)
 
     # 구간값: v[i][j] = 셀 i..j(포함)를 한 구획으로 쓸 때 최적 부피
     NEG = (0.0, 0, 0)          # (부피, iz0, iz1)
     val = [[NEG] * n_x for _ in range(n_x)]
+    min_run = max(1, int(np.ceil(min_dim / dx - 1e-9)))
     for i in range(n_x):
         if not mask[i]:
             continue
         run_min = w_xz[i].copy()
+        # 해치 창 추적: 천장 층별 — 현재 연속 창 길이 / 구간 내 최장
+        cur_run = np.zeros(n_z, dtype=int)
+        max_run = np.zeros(n_z, dtype=int)
         for j in range(i, n_x):
             if not mask[j]:
                 break
             if j > i:
                 run_min = np.minimum(run_min, w_xz[j])
+            cur_run = np.where(hatch_cell[j], cur_run + 1, 0)
+            max_run = np.maximum(max_run, cur_run)
             length = (j - i + 1) * dx
             if length < min_dim:
                 continue
@@ -120,6 +144,8 @@ def pack_bays_z(w_xz: np.ndarray, dx: float, zs: np.ndarray, dz: float,
                 m = float("inf")
                 for iz1 in range(iz0, n_z):
                     m = min(m, float(run_min[iz1]))
+                    if require_hatch and max_run[iz1] < min_run:
+                        continue     # 짐 내려보낼 창 없음
                     height = float(zs[iz1] - zs[iz0]) + dz
                     width = 2.0 * m
                     if height < min_dim or width < min_dim:
