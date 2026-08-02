@@ -129,10 +129,49 @@ def export_hydro_yaml(report: dict, out_dir: str | Path) -> Path:
     return path
 
 
+def _rudder_geometry(report: dict) -> dict:
+    """러더 제원 (스펙 4단계) — 3단계 사이징 그대로 + gz 배치.
+
+    스팬은 상자 흘수의 0.9로 상한 (LiftDrag는 수면을 몰라 수면 관통
+    부분에도 힘을 계산 — 잠긴 판만 두는 게 정직). 상한 걸리면 코드
+    (chord)로 면적 보존 (종횡비 하락은 한계 명기 — cla는 Mandel ΛE=3
+    유지)."""
+    from src.physics.cargo_hold import RESERVED_DENSITY_KG_M3  # noqa: F401
+    from src.sim_adapters.python_sim import SLOWDOWN_MIN_FRACTION
+    from src.sim_adapters.rudder import (
+        RUDDER_AR_GEOMETRIC,
+        RUDDER_K_LAMBDA,
+        RUDDER_MAX_RAD,
+        RUDDER_STALL_RAD,
+        RudderModel,
+        lift_slope_mandel,
+    )
+
+    d = report["dimensions"]
+    p = report["propulsion"]
+    w = report["weights"]
+    u_t = report["goal"]["target_speed_ms"]
+    sep = THRUSTER_SEP_OVER_B * d["beam"]
+    rud = RudderModel.for_vessel(
+        d["loa"], 0.15 * d["loa"], beam=d["beam"],
+        required_moment=float(p["motor"]["thrust_max_n"]) * sep,
+        u_design=SLOWDOWN_MIN_FRACTION * u_t)
+    draft_box = w["total_mass"] / (1025.0 * d["loa"] * d["beam"])
+    span = min((RUDDER_AR_GEOMETRIC * rud.area) ** 0.5, 0.9 * draft_box)
+    chord = rud.area / span
+    return {
+        "area": rud.area, "span": span, "chord": chord,
+        "x_pos": -0.48 * d["loa"],           # gz 프레임: 선미 = −x
+        "z_center": -d["depth"] / 2.0 + span / 2.0,   # 킬부터 세움
+        "cla": lift_slope_mandel(RUDDER_K_LAMBDA * RUDDER_AR_GEOMETRIC),
+        "stall_rad": RUDDER_STALL_RAD, "max_rad": RUDDER_MAX_RAD,
+    }
+
+
 def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
                collision: str = "mesh",
                waypoints: list[tuple[float, float]] | None = None,
-               follower: bool = False) -> Path:
+               follower: bool = False, rudder: bool = False) -> Path:
     """Gazebo용 model.sdf + 부력 월드 world.sdf (Phase B-2b).
 
     collision:
@@ -232,6 +271,61 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
     <plugin filename="gz-sim-odometry-publisher-system"
             name="gz::sim::systems::OdometryPublisher">
       <odom_publish_frequency>10</odom_publish_frequency>
+    </plugin>"""
+
+    # 러더 (스펙 4단계): 링크 + z축 revolute 조인트 + LiftDrag(수중
+    # 밀도 1025) + JointPositionController (서보). LiftDrag는 gz가
+    # 자기 방식으로 양력을 계산 — 파이썬 러더 모형과 독립 (교차 검증).
+    if rudder:
+        rg = _rudder_geometry(report)
+        thruster_xml += f"""
+    <link name="rudder">
+      <pose>{rg['x_pos']:.4f} 0 {rg['z_center']:.4f} 0 0 0</pose>
+      <!-- 관성 현실화: 깃털 관성(1e-4)에 서보 p=5는 폭주 실측
+           (2026-08-03: 각속도 25,000 rad/s — 러더가 프로펠러化,
+           반동 토크로 선체 전복). 실물급 질량·관성 + 조인트 감쇠. -->
+      <inertial><mass>0.5</mass>
+        <inertia><ixx>5e-3</ixx><iyy>5e-3</iyy><izz>5e-3</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="rudder_visual">
+        <geometry><box><size>{rg['chord']:.4f} 0.01 {rg['span']:.4f}</size></box></geometry>
+      </visual>
+    </link>
+    <joint name="rudder_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rudder</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>{-rg['max_rad']:.4f}</lower><upper>{rg['max_rad']:.4f}</upper>
+          <effort>20</effort></limit>
+        <dynamics><damping>0.5</damping></dynamics>
+      </axis>
+    </joint>
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <joint_name>rudder_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <link_name>rudder</link_name>
+      <air_density>1025</air_density>
+      <cla>{rg['cla']:.4f}</cla>
+      <alpha_stall>{rg['stall_rad']:.4f}</alpha_stall>
+      <cla_stall>-0.5</cla_stall>
+      <cda>0.05</cda>
+      <cda_stall>1.0</cda_stall>
+      <area>{rg['area']:.5f}</area>
+      <cp>0 0 0</cp>
+      <forward>1 0 0</forward>
+      <upward>0 1 0</upward>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system"
+            name="gz::sim::systems::JointPositionController">
+      <joint_name>rudder_joint</joint_name>
+      <p_gain>2.0</p_gain>
+      <d_gain>0.4</d_gain>
+      <cmd_max>15</cmd_max>
+      <cmd_min>-15</cmd_min>
     </plugin>"""
 
     # 웨이포인트 추종 (B-3b, 실험용 — 기본 꺼짐): gz 내장 TrajectoryFollower.
@@ -353,8 +447,9 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
 
 
 def export_control_yaml(report: dict, out_dir: str | Path,
-                        waypoints: list[tuple[float, float]] | None = None
-                        ) -> Path:
+                        waypoints: list[tuple[float, float]] | None = None,
+                        steering: str = "diff",
+                        u_override: float | None = None) -> Path:
     """제어기 파라미터 내보내기 (B-3c) — python_sim과 동일 법칙.
 
     게인은 design_gains(고유값 판별 사다리)에서 — 컨테이너 제어기가
@@ -366,8 +461,12 @@ def export_control_yaml(report: dict, out_dir: str | Path,
     out.mkdir(parents=True, exist_ok=True)
 
     vessel = vessel_from_report(report)
-    u_d = report["goal"]["target_speed_ms"]
-    kp_psi, kd_psi, lookahead, info = design_gains(vessel, u_d)
+    u_d = u_override if u_override is not None \
+        else report["goal"]["target_speed_ms"]
+    # 게인·lookahead는 설계 속도 기준 유지 (저속 판정 실험에서도
+    # 제어기는 동일 — python 1단계 실험 규약과 맞춤)
+    kp_psi, kd_psi, lookahead, info = design_gains(
+        vessel, report["goal"]["target_speed_ms"])
 
     # gz 플랜트 보정 (07-30 실측): 파이썬 모델 기준 게인은 gz에서 과공격
     # (모델 불일치 — 부가질량 0·제어 5Hz 지연) → 지그재그 σ 1.5m.
@@ -396,7 +495,18 @@ def export_control_yaml(report: dict, out_dir: str | Path,
                         if not isinstance(v, str) else v
                         for k, v in info.items()},
         "waypoints": [[float(x), float(y)] for x, y in (waypoints or [])],
+        "steering": steering,
     }
+    if steering == "rudder2":
+        rg = _rudder_geometry(report)
+        data["rudder"] = {
+            "area": float(rg["area"]), "cla": float(rg["cla"]),
+            "x_pos": float(rg["x_pos"]), "max_rad": float(rg["max_rad"]),
+            "stall_rad": float(rg["stall_rad"]),
+            # 부호: gz LiftDrag 방향 규약은 스텝 실험으로 검정 —
+            # 뒤집히면 여기만 −1 (컨트롤러가 곱해 씀)
+            "sign": 1.0,
+        }
     path = out / "control.yaml"
     with open(path, "w") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
@@ -415,6 +525,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="SDF collision: mesh(실선체) | box(바지선 검정)")
     parser.add_argument("--course-square", action="store_true",
                         help="사각 코스(변 10L) 웨이포인트 추종 포함 (B-3b)")
+    parser.add_argument("--steering", default="diff",
+                        choices=["diff", "rudder2"],
+                        help="조타: diff(차동) | rudder2(차동+러더, 스펙 4단계)")
+    parser.add_argument("--u-desired", type=float, default=None,
+                        help="목표 속도 덮어쓰기 (저속 판정 실험용)")
     args = parser.parse_args(argv)
 
     with open(args.report) as f:
@@ -426,9 +541,12 @@ def main(argv: list[str] | None = None) -> int:
     urdf = export_urdf(report, args.mesh, args.out)
     hydro = export_hydro_yaml(report, args.out)
     sdf = export_sdf(report, args.mesh, args.out, collision=args.collision,
-                     waypoints=waypoints)
+                     waypoints=waypoints,
+                     rudder=(args.steering == "rudder2"))
     if args.course_square:
-        export_control_yaml(report, args.out, waypoints=waypoints)
+        export_control_yaml(report, args.out, waypoints=waypoints,
+                            steering=args.steering,
+                            u_override=args.u_desired)
     if args.collision == "mesh":
         print("⚠ mesh 모드는 실험적 — 부양 검증은 box(바지선 해석해) 모드가 "
               "기준. 실선체 완전 부양은 B-3(6자유도 계수 정합) 과제.")
