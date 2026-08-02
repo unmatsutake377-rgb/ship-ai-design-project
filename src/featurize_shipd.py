@@ -30,12 +30,24 @@ from src.physics.resistance import wetted_surface
 
 TARGET_LOA = 3.0                      # 선별과 동일 상사 기준
 DRAFT_FRACS = (0.3, 0.5, 0.7)         # 기준 흘수 3단 (형심 대비)
-N_FEATURES = 30
+N_FEATURES = 32
+
+# v3 (2026-08-03, 스펙 features-v3): 평형 정합 + 다충실도
+# ① 평형 흘수를 고정 150 kg 개략 대신 라벨 파이프라인과 같은 무게
+#    모델(estimate_weights 고정비율 경로)로 배마다 계산 — 흘수
+#    불일치 소음 제거. 잔여 불일치: 라벨은 설계 나선(실모터 반복),
+#    특징은 고정 비율 (정직 한계, 스펙 §2)
+# ② 저해상 물리 2종 (r_wave_lo, r_michell_lo) — 다충실도 특징.
+#    해상도 60/30/80: 척간 비율 변동계수 0.11·척당 54 ms 실측
+#    (30/15는 CV 0.29로 기각, 라벨 평가 대비 ~1/20 비용)
+LABEL_SPEED_MS = 1.2                  # 라벨 생성 조건과 동일
+LABEL_PAYLOAD_KG = 100.0
+LO_N_X, LO_N_Z, LO_N_U = 60, 30, 80
 
 # v2 (2026-08-01 2회차): 저항·안정 라벨용 8종 추가 — 평형 흘수 근사
 # 기준 배수량. 라벨 생성 조건(payload 100 kg 나선 수렴 전체 중량
 # ~120-200 kg)의 중앙 개략값. 실무 근거 아님 — 명명 상수.
-REF_MASS_KG = 150.0
+REF_MASS_KG = 150.0   # v2 유물 — v3는 배별 무게 모델 사용 (이력 보존용)
 RHO = 1025.0
 KB_FRAC = 0.53    # 상자~V형 사이 개략 (KB ≈ 0.5~0.55 T)
 KG_FRAC = 0.65    # 중량 모델의 KG/D 개략 — 라벨 파이프라인과 동일 계보
@@ -49,6 +61,8 @@ FEATURE_NAMES = (
     # v2: 평형 자세 5 + 안정 프록시 1 + 입사각 1 + 능력비 1
     + ["t_eq", "wet_eq", "awp_eq", "ixx_eq", "bm_eq",
        "gmb_proxy", "entrance_deg", "capacity_ratio"]
+    # v3: 다충실도 2 (저해상 조파 / 저해상 총저항)
+    + ["r_wave_lo", "r_michell_lo"]
 )
 
 
@@ -101,9 +115,14 @@ def hull_features(mesh: trimesh.Trimesh) -> np.ndarray:
     except Exception:
         feats += [np.nan] * 3
 
-    # ---- v2: 평형 자세 특징 (저항·안정 라벨의 흘수 불일치 해소) ----
+    # ---- v2→v3: 평형 자세 특징 (라벨과 같은 무게 모델로 정합) ----
     try:
-        v_ref = REF_MASS_KG / RHO
+        from src.physics.weights import estimate_weights
+
+        # v3 ①: 배마다 무게 모델 계산 (v2는 150 kg 고정 개략이었음)
+        total_mass = estimate_weights(float(mesh.area), depth,
+                                      LABEL_PAYLOAD_KG).total_mass
+        v_ref = total_mass / RHO
         ts = np.array([f * depth for f in DRAFT_FRACS])
         vols = np.array(feats[7:19:4])       # vol_t30/50/70
         wets = np.array(feats[8:19:4])
@@ -125,6 +144,24 @@ def hull_features(mesh: trimesh.Trimesh) -> np.ndarray:
                   capacity]
     except Exception:
         feats += [np.nan] * 8
+        t_eq = np.nan
+
+    # ---- v3 ②: 다충실도 — 저해상 물리 저항 (스펙 §2a) ----
+    try:
+        from src.physics.resistance import (
+            frictional_resistance,
+            michell_wave_resistance_mesh,
+        )
+
+        t_lo = float(min(max(t_eq, 0.05 * depth), 0.9 * depth))
+        rw_lo = michell_wave_resistance_mesh(
+            mesh, t_lo, LABEL_SPEED_MS,
+            n_u=LO_N_U, n_x=LO_N_X, n_z=LO_N_Z)
+        wet_lo = wetted_surface(mesh, t_lo)
+        rf_lo = frictional_resistance(LABEL_SPEED_MS, loa, wet_lo)
+        feats += [rw_lo, rf_lo + rw_lo]
+    except Exception:
+        feats += [np.nan] * 2
     return np.array(feats, dtype=np.float64)
 
 
@@ -190,7 +227,8 @@ def featurize_all(out_path: Path, limit: int | None = None,
 
 
 def main() -> int:
-    out = Path("data/shipd/features_loa3.npy")
+    # v3 별도 파일 — v2(features_loa3.npy) 보존 (A/B 재현성, 스펙 §3)
+    out = Path("data/shipd/features_v3_loa3.npy")
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else None
     feats = featurize_all(out, limit=limit)
     ok = np.isfinite(feats).all(axis=1).sum()
