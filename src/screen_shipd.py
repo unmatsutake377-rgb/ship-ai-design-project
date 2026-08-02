@@ -63,6 +63,7 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
             reserved_volume_for,
         )
         from src.physics.hydrostatics import (
+            free_trim_equilibrium,
             longitudinal_properties,
             trim_angle_deg,
         )
@@ -113,6 +114,13 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
             trim_deg = trim_angle_deg(lcg_best, lcb_x, hydro.kb, bml,
                                       kg_mid)
             trim_ok = bool(abs(trim_deg) <= TRIM_MAX_DEG)
+            # 대각 정밀화 (2026-08-03 후속): 소각 선형은 한계각 근방만
+            # 정밀 — 선형 기각 배만 자유 자세 완전판(회전 평형)으로
+            # 재판정. 선형이 과대 추정한 경계 사례를 구제.
+            if not trim_ok:
+                trim_deg = free_trim_equilibrium(
+                    mesh, weights.total_mass, lcg_x=lcg_best, kg=kg_mid)
+                trim_ok = bool(abs(trim_deg) <= TRIM_MAX_DEG)
         else:
             trim_deg, trim_ok = float("nan"), False
         gmb = hydro.gm / beam

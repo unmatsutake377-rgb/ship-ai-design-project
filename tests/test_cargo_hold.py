@@ -239,3 +239,80 @@ def test_pack_bays_z_respects_max_bays():
     assert len(boxes) <= 3
     assert sum(b[3] for b in boxes) == pytest.approx(3 * 0.8 * 1.0 * 0.4,
                                                      rel=1e-6)
+
+
+def test_pack_bays_z_hatch_blocked_band_rejected():
+    """해치 접근성: 위가 막힌(좁은 목) 낮은 띠는 짐을 못 내려보냄.
+
+    지형도: 아래 2층 넓음(반폭 0.5), 위 2층 전부 목 좁음(0.05).
+    해치 검사 켜면 아래 띠 상자는 기각 → 상자 0개.
+    (위 2층 중 한 구간이라도 넓으면 그 창으로 통과 — 두 번째 필드)"""
+    import numpy as np
+
+    from src.physics.cargo_hold import pack_bays_z
+
+    zs = np.array([0.05, 0.15, 0.25, 0.35])
+    blocked = np.zeros((10, 4))
+    blocked[:, :2] = 0.5
+    blocked[:, 2:] = 0.05          # 목 전면 봉쇄
+    assert pack_bays_z(blocked, dx=0.2, zs=zs, dz=0.1,
+                       mask=np.ones(10, dtype=bool), min_dim=0.15,
+                       require_hatch=True) == []
+
+    windowed = blocked.copy()
+    windowed[4:6, 2:] = 0.5        # 0.4 m 폭 해치 창
+    boxes = pack_bays_z(windowed, dx=0.2, zs=zs, dz=0.1,
+                        mask=np.ones(10, dtype=bool), min_dim=0.15,
+                        require_hatch=True)
+    assert len(boxes) >= 1
+    assert sum(b[3] for b in boxes) > 0
+
+
+def test_pack_bays_z_top_band_needs_no_hatch():
+    """천장까지 뚫린 상자(맨 위층 포함)는 해치 검사 면제 — 갑판이 입구."""
+    import numpy as np
+
+    from src.physics.cargo_hold import pack_bays_z
+
+    w = np.full((10, 4), 0.5)
+    boxes = pack_bays_z(w, dx=0.2, zs=np.array([0.05, 0.15, 0.25, 0.35]),
+                        dz=0.1, mask=np.ones(10, dtype=bool),
+                        min_dim=0.15, require_hatch=True)
+    assert len(boxes) == 1
+    assert boxes[0][3] == pytest.approx(0.8)
+
+
+def test_free_trim_matches_linear_small_angle():
+    """자유 자세 평형 vs 소각 선형 이론 — 소각에서 일치해야.
+
+    상자 선체 L2×B1×D0.5, 질량 512.5 kg (흘수 0.25 등가),
+    LCG 오프셋 +0.05 m, KG 0.2: 선형 θ = 0.05/GML = 2.28°."""
+    import trimesh
+
+    from src.physics.hydrostatics import (
+        free_trim_equilibrium,
+        longitudinal_properties,
+        trim_angle_deg,
+    )
+
+    hull = trimesh.creation.box(extents=[2.0, 1.0, 0.5])
+    hull.apply_translation([1.0, 0.0, 0.25])
+    mass = 1025.0 * 2.0 * 1.0 * 0.25
+    lcb, bml = longitudinal_properties(hull, draft=0.25)
+    linear = trim_angle_deg(lcg_x=1.05, lcb_x=lcb, kb=0.125, bml=bml,
+                            kg=0.2)
+    free = free_trim_equilibrium(hull, mass, lcg_x=1.05, kg=0.2)
+    assert free == pytest.approx(linear, rel=0.10)   # 소각 일치
+
+
+def test_free_trim_zero_when_balanced():
+    """LCG = LCB(중앙)이면 트림 0."""
+    import trimesh
+
+    from src.physics.hydrostatics import free_trim_equilibrium
+
+    hull = trimesh.creation.box(extents=[2.0, 1.0, 0.5])
+    hull.apply_translation([1.0, 0.0, 0.25])
+    mass = 1025.0 * 2.0 * 1.0 * 0.25
+    free = free_trim_equilibrium(hull, mass, lcg_x=1.0, kg=0.2)
+    assert free == pytest.approx(0.0, abs=0.05)
