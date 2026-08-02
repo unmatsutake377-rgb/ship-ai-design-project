@@ -75,3 +75,27 @@ def test_candidate_rejected_when_payload_too_bulky():
     bad = evaluate_candidate(x, goal, payload_volume=50.0)
     assert bad["feasible"] is False
     assert "공간" in bad["reason"]
+
+
+def test_gate_trains_and_predicts():
+    """문지기 학습: 라벨 500장 → 예측 확률 [0,1] 반환."""
+    import numpy as np
+
+    from src.optimize import _train_gate
+
+    gate = _train_gate()
+    assert gate is not None
+    p, obj = gate.predict(np.array([[3.0, 3.5, 4.0, 0.47]]))
+    assert 0.0 <= float(p[0]) <= 1.0
+
+
+def test_gated_run_produces_feasible_front():
+    """문지기 켠 소형 런: 전선 비어있지 않고 전부 실물리 검증 행."""
+    from src.core.types import GoalSpec
+    from src.optimize import optimize_design
+
+    goal = GoalSpec(target_speed_ms=1.2, payload_kg=100.0, purpose="survey")
+    df = optimize_design(goal, pop_size=8, n_gen=3, seed=3,
+                         surrogate_gate=True)
+    assert len(df) >= 1
+    assert df["feasible"].all()

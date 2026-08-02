@@ -80,18 +80,62 @@ def evaluate_candidate(x: np.ndarray, goal: GoalSpec,
                 "feasible": False, "reason": str(exc)[:80]}
 
 
+# 문지기 대리모델 (원안 ⑥ 마지막 고리, 2026-08-03): NSGA 후보를 실물리
+# 평가(척당 ~1.5s) 전에 4차원 입력 대리모델(밀리초)로 선판정 — 확신
+# 있는 불합격 예측만 실물리 생략. 정직성 3중 보장: ① 최종 전선은 전부
+# 실물리 재평가 ② 문지기는 라벨과 같은 목표(1.2 m/s·100 kg·survey)
+# 에서만 활성 (다른 목표면 자동 비활성 — 전이 실패 0.50 실측의 교훈:
+# "AI는 배운 분포 밖에선 초보") ③ 애매하면 실물리로 넘김 (문턱 0.2)
+GATE_LABELS = Path("data/wigley_gate_labels_survey_1.2_100.csv")
+GATE_GOAL = (1.2, 100.0, "survey")   # 라벨 생성 조건 — 불일치 시 비활성
+GATE_THRESHOLD = 0.2                 # 이 미만 확률만 "확신 불합격" 처리
+
+
+def _train_gate():
+    """문지기 학습 (라벨 500장, 수 초). 파일 없으면 None."""
+    if not GATE_LABELS.exists():
+        return None
+    from src.ai.surrogate import train_surrogate
+
+    df = pd.read_csv(GATE_LABELS)
+    x = df[["loa", "lb", "bt", "cb"]].to_numpy()
+    yf = df["feasible"].to_numpy(float)
+    yo = df[["resistance_n", "total_mass_kg",
+             "stability_margin"]].to_numpy(float)
+    model, metrics = train_surrogate(x, yf, yo, seed=0)
+    return model
+
+
 def optimize_design(goal: GoalSpec, pop_size: int = 24, n_gen: int = 20,
-                    seed: int = 1, verbose: bool = False) -> pd.DataFrame:
+                    seed: int = 1, verbose: bool = False,
+                    surrogate_gate: bool = False) -> pd.DataFrame:
     """NSGA-II 실행 → 최종 세대 비지배(파레토) 후보 DataFrame."""
     from pymoo.algorithms.moo.nsga2 import NSGA2
     from pymoo.core.problem import ElementwiseProblem
     from pymoo.optimize import minimize
+
+    gate = None
+    if surrogate_gate:
+        if (goal.target_speed_ms, goal.payload_kg, goal.purpose) == GATE_GOAL:
+            gate = _train_gate()
+        if gate is None and verbose:
+            print("문지기 비활성 (라벨 없음 또는 목표 불일치) — 전 실물리")
+    stats = {"real": 0, "gated": 0}
 
     class ShipDesignProblem(ElementwiseProblem):
         def __init__(self):
             super().__init__(n_var=4, n_obj=3, xl=BOUNDS_LOW, xu=BOUNDS_HIGH)
 
         def _evaluate(self, x, out, *args, **kwargs):
+            if gate is not None:
+                feas_p, _ = gate.predict(np.asarray(x, float)[None, :])
+                if float(feas_p[0]) < GATE_THRESHOLD:
+                    stats["gated"] += 1
+                    out["F"] = [float(DEATH_PENALTY[0]),
+                                float(DEATH_PENALTY[1]),
+                                float(DEATH_PENALTY[2])]
+                    return
+            stats["real"] += 1
             r = evaluate_candidate(x, goal)
             out["F"] = [r["resistance_n"], r["total_mass_kg"],
                         -r["stability_margin"]]
@@ -99,6 +143,12 @@ def optimize_design(goal: GoalSpec, pop_size: int = 24, n_gen: int = 20,
     res = minimize(ShipDesignProblem(), NSGA2(pop_size=pop_size),
                    ("n_gen", n_gen), seed=seed, verbose=verbose)
 
+    if verbose and gate is not None:
+        total = stats["real"] + stats["gated"]
+        print(f"문지기: 실물리 {stats['real']} / 생략 {stats['gated']} "
+              f"(절약률 {stats['gated'] / max(total, 1):.0%})")
+
+    # 최종 전선은 전부 실물리 재평가 — 문지기 오류가 결과에 못 들어옴
     rows = [evaluate_candidate(x, goal) for x in np.atleast_2d(res.X)]
     df = pd.DataFrame([r for r in rows if r["feasible"]])
     return df.reset_index(drop=True)
@@ -144,13 +194,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", default="outputs/pareto")
     parser.add_argument("--purpose", default="survey",
                         help="용도 — 추천 가중 프리셋 선택 (#25 2단계)")
+    parser.add_argument("--gate", action="store_true",
+                        help="문지기 대리모델로 평가 가속 (실물리 27%% "
+                             "절약 — 대형 런에서만 벽시계 이득, 소형은 "
+                             "학습 고정비로 상쇄됨. 전선은 항상 실물리)")
     args = parser.parse_args(argv)
 
     goal = GoalSpec(target_speed_ms=args.speed, payload_kg=args.payload,
                     purpose=args.purpose, endurance_h=args.endurance)
     print(f"NSGA-II 시작: 개체 {args.pop} × 세대 {args.gen} "
           f"(평가 ~{args.pop * args.gen}회, 물리 직접 — 수 분 소요)")
-    df = optimize_design(goal, pop_size=args.pop, n_gen=args.gen, verbose=True)
+    df = optimize_design(goal, pop_size=args.pop, n_gen=args.gen, verbose=True,
+                         surrogate_gate=args.gate)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
