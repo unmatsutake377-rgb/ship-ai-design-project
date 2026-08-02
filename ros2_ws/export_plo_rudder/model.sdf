@@ -1,0 +1,142 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="generated_hull">
+    <link name="base_link">
+      <inertial>
+        <pose>0.000000 0 -0.000198 0 0 0</pose>
+        <mass>98.418469</mass>
+        <inertia>
+          <ixx>7.716008</ixx><iyy>48.225050</iyy><izz>55.885117</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="hull_collision">
+        <pose>0 0 0.000000 0 0 0</pose>
+        <geometry><box><size>2.8000 0.8000 0.2844</size></box></geometry>
+      </collision>
+      <visual name="hull_visual">
+        <pose>0 0 -0.142222 0 0 0</pose>
+        <geometry><mesh><uri>hull.stl</uri></mesh></geometry>
+      </visual>
+    </link>
+    <link name="left_prop">
+      <pose>-1.2600 0.3200 -0.1222 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="left_prop_visual">
+        <!-- 시각만 회전 — 링크를 돌리면 조인트 축(=추력 방향)이 수직이 됨
+             (07-29 실측: 전진 불능·표류의 원인) -->
+        <pose>0 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.04</radius><length>0.02</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="left_prop_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>left_prop</child>
+      <axis><xyz>1 0 0</xyz></axis>
+    </joint>
+    <plugin filename="gz-sim-thruster-system" name="gz::sim::systems::Thruster">
+      <namespace>generated_hull</namespace>
+      <joint_name>left_prop_joint</joint_name>
+      <thrust_coefficient>0.004</thrust_coefficient>
+      <fluid_density>1025</fluid_density>
+      <propeller_diameter>0.08</propeller_diameter>
+    </plugin>
+    <link name="right_prop">
+      <pose>-1.2600 -0.3200 -0.1222 0 0 0</pose>
+      <inertial><mass>0.05</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="right_prop_visual">
+        <!-- 시각만 회전 — 링크를 돌리면 조인트 축(=추력 방향)이 수직이 됨
+             (07-29 실측: 전진 불능·표류의 원인) -->
+        <pose>0 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.04</radius><length>0.02</length></cylinder></geometry>
+      </visual>
+    </link>
+    <joint name="right_prop_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>right_prop</child>
+      <axis><xyz>1 0 0</xyz></axis>
+    </joint>
+    <plugin filename="gz-sim-thruster-system" name="gz::sim::systems::Thruster">
+      <namespace>generated_hull</namespace>
+      <joint_name>right_prop_joint</joint_name>
+      <thrust_coefficient>0.004</thrust_coefficient>
+      <fluid_density>1025</fluid_density>
+      <propeller_diameter>0.08</propeller_diameter>
+    </plugin>
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_publish_frequency>10</odom_publish_frequency>
+    </plugin>
+    <link name="rudder">
+      <pose>-1.3440 0 -0.1229 0 0 0</pose>
+      <!-- 관성 현실화: 깃털 관성(1e-4)에 서보 p=5는 폭주 실측
+           (2026-08-03: 각속도 25,000 rad/s — 러더가 프로펠러化,
+           반동 토크로 선체 전복). 실물급 질량·관성 + 조인트 감쇠. -->
+      <inertial><mass>0.5</mass>
+        <inertia><ixx>5e-3</ixx><iyy>5e-3</iyy><izz>5e-3</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="rudder_visual">
+        <geometry><box><size>0.9269 0.01 0.0386</size></box></geometry>
+      </visual>
+    </link>
+    <joint name="rudder_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rudder</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit><lower>-0.6109</lower><upper>0.6109</upper>
+          <effort>20</effort></limit>
+        <dynamics><damping>0.5</damping></dynamics>
+      </axis>
+    </joint>
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <joint_name>rudder_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <link_name>rudder</link_name>
+      <air_density>1025</air_density>
+      <cla>3.1384</cla>
+      <alpha_stall>0.3054</alpha_stall>
+      <cla_stall>-0.5</cla_stall>
+      <cda>0.05</cda>
+      <cda_stall>1.0</cda_stall>
+      <area>0.03576</area>
+      <cp>0 0 0</cp>
+      <forward>1 0 0</forward>
+      <upward>0 1 0</upward>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system"
+            name="gz::sim::systems::JointPositionController">
+      <joint_name>rudder_joint</joint_name>
+      <p_gain>2.0</p_gain>
+      <d_gain>0.4</d_gain>
+      <cmd_max>15</cmd_max>
+      <cmd_min>-15</cmd_min>
+    </plugin>
+    <plugin filename="gz-sim-hydrodynamics-system"
+            name="gz::sim::systems::Hydrodynamics">
+      <link_name>base_link</link_name>
+      <xDotU>0</xDotU>
+      <yDotV>0</yDotV>
+      <zDotW>0</zDotW>
+      <kDotP>0</kDotP>
+      <mDotQ>0</mDotQ>
+      <nDotR>0</nDotR>
+      <xU>-4.7082</xU>
+      <xUabsU>-3.1388</xUabsU>
+      <yV>-243.4531</yV>
+      <zW>-2693.5760</zW>
+      <kP>-114.8030</kP>
+      <mQ>-1524.0341</mQ>
+      <nR>-313.1216</nR>
+    </plugin>
+  </model>
+</sdf>

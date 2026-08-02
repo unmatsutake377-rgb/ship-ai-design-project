@@ -497,7 +497,7 @@ def export_control_yaml(report: dict, out_dir: str | Path,
         "waypoints": [[float(x), float(y)] for x, y in (waypoints or [])],
         "steering": steering,
     }
-    if steering == "rudder2":
+    if steering in ("rudder2", "rudder1"):
         rg = _rudder_geometry(report)
         data["rudder"] = {
             "area": float(rg["area"]), "cla": float(rg["cla"]),
@@ -526,8 +526,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--course-square", action="store_true",
                         help="사각 코스(변 10L) 웨이포인트 추종 포함 (B-3b)")
     parser.add_argument("--steering", default="diff",
-                        choices=["diff", "rudder2"],
-                        help="조타: diff(차동) | rudder2(차동+러더, 스펙 4단계)")
+                        choices=["diff", "rudder2", "rudder1"],
+                        help="조타: diff(차동) | rudder2(차동+러더) | "
+                             "rudder1(단일 상당+러더 — 차동 보조 없음)")
     parser.add_argument("--u-desired", type=float, default=None,
                         help="목표 속도 덮어쓰기 (저속 판정 실험용)")
     args = parser.parse_args(argv)
@@ -542,7 +543,7 @@ def main(argv: list[str] | None = None) -> int:
     hydro = export_hydro_yaml(report, args.out)
     sdf = export_sdf(report, args.mesh, args.out, collision=args.collision,
                      waypoints=waypoints,
-                     rudder=(args.steering == "rudder2"))
+                     rudder=(args.steering in ("rudder2", "rudder1")))
     if args.course_square:
         export_control_yaml(report, args.out, waypoints=waypoints,
                             steering=args.steering,
