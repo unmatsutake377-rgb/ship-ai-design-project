@@ -1,0 +1,16 @@
+item,value,unit,grade,source,note
+lift_slope_mandel,"CLa = 1.8*pi*AR_e/(sqrt(AR_e^2+4)+1.8)",per rad,A,"Liu & Hekkenberg 2017, Ships and Offshore Structures 12(4) eq.(7) — Mandel 1967","저종횡비 러더 표준 경험식"
+lift_slope_soding,"CLa = 2*pi*AR_e*(AR_e+1)/(AR_e+2)^2",per rad,A,"같은 논문 eq.(8) — Söding 1982","교차 검증용 대안식"
+effective_aspect_ratio,"AR_e = k*AR_g, k≈2 선체 밀착 (거울 효과), k→1 독립",-,A,"같은 논문 §ΛE = kΛΛG","루트가 평평한 선저에 밀착하면 스팬 2배 효과"
+geometric_aspect_ratio_seagoing,1.5~3,-,A,"같은 논문 (러더 제조사 확인 인용)","항양선 관행"
+geometric_aspect_ratio_inland,1~2,-,A,"같은 논문","내륙선 관행"
+stall_angle_open_water,15~20,deg,A,"같은 논문","개수면 — 우리 모형 조건 (후류 무시)과 일치"
+stall_angle_in_slipstream,30~40,deg,A,"같은 논문","프로펠러 후류 안 — 후류 모형 추가 시 사용"
+rudder_area_dnv,"A = (L*T/100)*(1+25*(B/L)^2)",m^2,A,"DNV 1975 rules (Rudder design guides 인용)","면적 산정 규칙"
+rudder_area_supply_pct,3~4,% of L*T,B,"공급선 관행 (설계 가이드)","검산용 범위"
+max_deflection,35,deg,A,"실선 관행 (SOLAS 조타 각도 기준)","±35°"
+ship_steering_rate_solas,2.3,deg/s,A,"SOLAS II-1/29: 35°→-30° 28초 이내","실선 하한 — USV엔 참고용"
+servo_power_hd_20kg_torque,20,kg·cm @6.6V,A,"Power HD 방수 서보 (rcboatbitz.com 카탈로그)","1~3m급 러더 서보 대표"
+servo_power_hd_20kg_speed,0.16,s/60° @6.6V,A,"같은 카탈로그","무부하 375°/s"
+servo_power_hd_20kg_mass,60,g,A,"같은 카탈로그",
+servo_class_heavy,35~51,kg·cm,B,"대형 RC 보트용 방수 서보 클래스 (goodiesrc 등)","여유 필요 시 상위 클래스"
