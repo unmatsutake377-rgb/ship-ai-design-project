@@ -48,23 +48,34 @@ def evaluate_shipd_hull(vector: np.ndarray, goal: GoalSpec,
         )
         if not hydro.passed:
             raise ValueError(f"필터 불합격: {hydro.checks}")
-        # MaxBox 공간 검사는 Ship-D 경로에 **보류** (2026-08-03 실측):
-        # 단일 상자 가정이 실선형에 과혹 — 표본 15척 중 공간 사유 4척
-        # 등 feasible 붕괴. 실제 배는 다구획 분산 적재이므로 다구획
-        # 모형이 선행돼야 공정 (Wigley 최적화기에는 적용됨 — 매끈한
-        # 계열이라 단일 상자 근사가 덜 보수적). #27 후속의 후속으로 등록.
+        # 다구획 공간 검사 (2026-08-03 재개방 — 스펙 multibay-maxbox):
+        # 단일 상자 보류(과혹)를 다구획+예약 절단으로 대체. 라벨 호환을
+        # 위해 feasible(중량·안정)은 그대로 두고 space_ok를 별도 열로 —
+        # 기존 1만 라벨과 의미가 섞이지 않게 (파레토는 둘 다 요구).
+        from src.physics.cargo_hold import multibay_hold, reserved_volume_for
+        from src.physics.maxbox import payload_volume_for
+
+        pv, _ = payload_volume_for(goal.payload_kg, goal.purpose)
+        hold = multibay_hold(mesh, depth,
+                             reserved_volume_for(weights.propulsion_mass),
+                             stern="xmax")   # Ship-D 관례: 뱃머리 x=0
         gmb = hydro.gm / beam
         margin = min(gmb - GM_BAND[0], GM_BAND[1] - gmb)
         return {**base, "beam": beam, "draft": hydro.draft,
                 "resistance_n": resist.total,
                 "total_mass_kg": weights.total_mass,
-                "stability_margin": margin, "feasible": True, "reason": ""}
+                "stability_margin": margin, "feasible": True,
+                "space_ok": bool(hold.total_volume >= pv),
+                "hold_volume_m3": hold.total_volume,
+                "n_bays": len(hold.boxes), "reason": ""}
     except Exception as exc:
         return {**base, "beam": float("nan"), "draft": float("nan"),
                 "resistance_n": float("nan"),
                 "total_mass_kg": float("nan"),
                 "stability_margin": float("nan"),
-                "feasible": False, "reason": str(exc)[:80]}
+                "feasible": False, "space_ok": False,
+                "hold_volume_m3": float("nan"), "n_bays": 0,
+                "reason": str(exc)[:80]}
 
 
 def _mark_pareto(df: pd.DataFrame) -> pd.DataFrame:
@@ -97,14 +108,16 @@ def screen(goal: GoalSpec, target_loa: float, n_samples: int = 300,
             ok = sum(r["feasible"] for r in rows)
             print(f"  {k + 1}/{n_samples} 평가 — feasible {ok}")
     df = pd.DataFrame(rows)
-    feasible = df[df["feasible"]].reset_index(drop=True)
+    # 파레토 후보 = 중량·안정 합격 AND 공간 합격 (다구획, 2026-08-03)
+    candidate = df["feasible"] & df["space_ok"]
+    feasible = df[candidate].reset_index(drop=True)
     if feasible.empty:
         return df.assign(pareto=False)
     marked = _mark_pareto(feasible)
     # 탈락 행도 보존 (pareto=False) — 대리모델 타당성 분류 학습에 필수.
     # (초기 버전은 feasible만 저장 → 분류기가 '전부 통과'를 학습하는
     #  결손 라벨 버그가 있었음, 2026-07-28)
-    rejected = df[~df["feasible"]].assign(pareto=False)
+    rejected = df[~candidate].assign(pareto=False)
     return pd.concat([marked, rejected], ignore_index=True)
 
 
