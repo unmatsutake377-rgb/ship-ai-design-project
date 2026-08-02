@@ -109,8 +109,11 @@ class Controller:
             rd = cfg["rudder"]
             n_per_rad = (0.5 * 1025.0 * max(u, 0.05) ** 2 * rd["area"]
                          * rd["cla"] * abs(rd["x_pos"]))
-            delta = rd["sign"] * max(-rd["max_rad"],
-                                     min(rd["max_rad"],
+            # 클램프 = 실속각 (max_rad 아님): gz LiftDrag는 실속 밖에서
+            # 양력이 반전됨 (직립 실측 2026-08-03: δ+0.61→yaw −129° vs
+            # +0.25→+112°) — 실속 밖 명령은 조타 역전 + 물리적 낭비
+            delta = rd["sign"] * max(-rd["stall_rad"],
+                                     min(rd["stall_rad"],
                                          moment / max(n_per_rad, 1e-9)))
             d_eff = max(-rd["stall_rad"], min(rd["stall_rad"], delta))
             n_rudder = n_per_rad * d_eff * rd["sign"]
@@ -132,7 +135,11 @@ class Controller:
                 diff = max(-d_max,
                            min(d_max,
                                moment_res / cfg["thruster_separation"]))
-            tl, tr = common + diff, common - diff
+            # 직립 세계 재캘리브레이션 (2026-08-03 부양 자세 캠페인):
+            # 옛 "왼쪽 강함 = 반시계"는 뒤집힌 배의 실측이었음 — 배가
+            # 뒤집히면 요 축도 뒤집힘. 직립 실측: 좌만 15N → yaw −80°
+            # (시계) → +모멘트는 오른쪽 강함.
+            tl, tr = common - diff, common + diff
             pub_rudder(delta)
         else:
             diff = max(-cfg["thrust_max"],
@@ -141,7 +148,9 @@ class Controller:
             headroom = cfg["thrust_max"] - abs(diff)
             common = max(0.0, min(headroom, cfg["kp_u"] * (u_cmd - u)))
 
-            tl, tr = common + diff, common - diff  # 왼쪽 강함 = 반시계
+            # 직립 재캘리브레이션 (2026-08-03): 좌강 = 시계(−요) 실측
+            # — 옛 반전(b9a9f45)은 뒤집힌 배 기준이었음
+            tl, tr = common - diff, common + diff
             if min(tl, tr) < 0:  # 후진 금지 — 모멘트 보존 상향
                 shift = -min(tl, tr)
                 tl += shift

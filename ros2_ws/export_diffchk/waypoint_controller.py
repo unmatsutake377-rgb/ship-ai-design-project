@@ -103,7 +103,7 @@ class Controller:
 
         moment = cfg["kp_psi"] * ssa(psi_d - psi) - cfg["kd_psi"] * r
         delta = 0.0
-        if cfg.get("steering") == "rudder2":
+        if cfg.get("steering") in ("rudder2", "rudder1"):
             # 러더 우선 (스펙 4단계, python 1단계와 같은 법칙):
             # 현재 유속의 각도당 모멘트로 필요 타각 역산, 잔여만 차동.
             rd = cfg["rudder"]
@@ -119,12 +119,24 @@ class Controller:
             # 전속 가속 중 common=천장 → d_max=0 → 저속(러더 무력)
             # 구간에서 조타 실종, 초반 표류. 스로틀 상한을 80%로 눌러
             # 차동 여유를 상시 확보 — 실선 "전타 시 감속" 관행)
-            cap = 0.8 * cfg["thrust_max"]
-            common = max(0.0, min(cap, cfg["kp_u"] * (u_cmd - u)))
-            d_max = min(common + 1e-9, cfg["thrust_max"] - common)
-            diff = max(-d_max, min(d_max,
-                                   moment_res / cfg["thruster_separation"]))
-            tl, tr = common + diff, common - diff
+            if cfg["steering"] == "rudder1":
+                # 구성 B: 단일 추력기 상당 — 차동 보조 없음 (조타 =
+                # 러더 100%), 총추력 천장 = 1발 (좌우 균등 분담)
+                common = max(0.0, min(cfg["thrust_max"] / 2.0,
+                                      cfg["kp_u"] * (u_cmd - u) / 2.0))
+                diff = 0.0
+            else:
+                cap = 0.8 * cfg["thrust_max"]
+                common = max(0.0, min(cap, cfg["kp_u"] * (u_cmd - u)))
+                d_max = min(common + 1e-9, cfg["thrust_max"] - common)
+                diff = max(-d_max,
+                           min(d_max,
+                               moment_res / cfg["thruster_separation"]))
+            # 직립 세계 재캘리브레이션 (2026-08-03 부양 자세 캠페인):
+            # 옛 "왼쪽 강함 = 반시계"는 뒤집힌 배의 실측이었음 — 배가
+            # 뒤집히면 요 축도 뒤집힘. 직립 실측: 좌만 15N → yaw −80°
+            # (시계) → +모멘트는 오른쪽 강함.
+            tl, tr = common - diff, common + diff
             pub_rudder(delta)
         else:
             diff = max(-cfg["thrust_max"],
@@ -133,7 +145,9 @@ class Controller:
             headroom = cfg["thrust_max"] - abs(diff)
             common = max(0.0, min(headroom, cfg["kp_u"] * (u_cmd - u)))
 
-            tl, tr = common + diff, common - diff  # 왼쪽 강함 = 반시계
+            # 직립 재캘리브레이션 (2026-08-03): 좌강 = 시계(−요) 실측
+            # — 옛 반전(b9a9f45)은 뒤집힌 배 기준이었음
+            tl, tr = common - diff, common + diff
             if min(tl, tr) < 0:  # 후진 금지 — 모멘트 보존 상향
                 shift = -min(tl, tr)
                 tl += shift

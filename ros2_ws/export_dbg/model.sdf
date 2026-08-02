@@ -10,53 +10,52 @@
           <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
         </inertia>
       </inertial>
-
       <collision name="hull_c00">
-        <pose>-0.7395 -0.3287 0.000000 0 0 0</pose>
+        <pose>-0.7395 -0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c01">
-        <pose>-0.7395 0.0000 0.000000 0 0 0</pose>
+        <pose>-0.7395 0.0000 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c02">
-        <pose>-0.7395 0.3287 0.000000 0 0 0</pose>
+        <pose>-0.7395 0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c10">
-        <pose>-0.2465 -0.3287 0.000000 0 0 0</pose>
+        <pose>-0.2465 -0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c11">
-        <pose>-0.2465 0.0000 0.000000 0 0 0</pose>
+        <pose>-0.2465 0.0000 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c12">
-        <pose>-0.2465 0.3287 0.000000 0 0 0</pose>
+        <pose>-0.2465 0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c20">
-        <pose>0.2465 -0.3287 0.000000 0 0 0</pose>
+        <pose>0.2465 -0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c21">
-        <pose>0.2465 0.0000 0.000000 0 0 0</pose>
+        <pose>0.2465 0.0000 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c22">
-        <pose>0.2465 0.3287 0.000000 0 0 0</pose>
+        <pose>0.2465 0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c30">
-        <pose>0.7395 -0.3287 0.000000 0 0 0</pose>
+        <pose>0.7395 -0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c31">
-        <pose>0.7395 0.0000 0.000000 0 0 0</pose>
+        <pose>0.7395 0.0000 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <collision name="hull_c32">
-        <pose>0.7395 0.3287 0.000000 0 0 0</pose>
+        <pose>0.7395 0.3287 0 0 0 0</pose>
         <geometry><box><size>0.4930 0.3287 0.4303</size></box></geometry>
       </collision>
       <visual name="hull_visual">

@@ -29,6 +29,14 @@ from src.sim_adapters.python_sim import (
 KXX_OVER_B = 0.35  # 횡동요 회전반경/폭 (통상값)
 KYY_OVER_L = 0.25  # 종동요 회전반경/길이 (통상값)
 
+# 부력 collision 분할 (2026-08-03 gz 부양 자세 캠페인):
+# gz graded 부력은 단일 상자의 부심을 기울기 무관 고정점처럼 취급 —
+# 수선면 복원(메타센터) 부재로 CG가 부심 위인 모든 배가 도립 진자
+# 전복 (피치 지수 성장 실측, 시정수 ~3s). 상자를 격자 분할하면
+# 기운 쪽 조각이 더 잠겨 부심이 이동 = 복원을 이산 재현 (E3: 4×3
+# 분할로 60 s 직립 완치 실측).
+GZ_BUOY_NX, GZ_BUOY_NY = 4, 3
+
 
 def _inertia_triplet(report: dict) -> tuple[float, float, float]:
     """내보내기용 관성 3축 (ixx, iyy, izz) — 삼각 부등식 보장.
@@ -363,10 +371,7 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
           <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
         </inertia>
       </inertial>
-      <collision name="hull_collision">
-        <pose>0 0 {collision_z:.6f} 0 0 0</pose>
-        <geometry>{geom_xml}</geometry>
-      </collision>
+<!--COLLISION-->
       <visual name="hull_visual">
         <pose>0 0 {visual_pose_z:.6f} 0 0 0</pose>
         <geometry>{visual_xml}</geometry>
@@ -375,6 +380,30 @@ def export_sdf(report: dict, mesh_path: str | Path, out_dir: str | Path,
   </model>
 </sdf>
 """
+    # 부력 collision: mesh 모드는 격자 분할 (전복 완치, 모듈 상단
+    # GZ_BUOY_* 참조), box(바지선 검정) 모드는 단일 유지 (원검증 보존)
+    if collision == "box":
+        collision_xml = f"""
+      <collision name="hull_collision">
+        <pose>0 0 {collision_z:.6f} 0 0 0</pose>
+        <geometry>{geom_xml}</geometry>
+      </collision>"""
+    else:
+        cells = []
+        for i in range(GZ_BUOY_NX):
+            for j in range(GZ_BUOY_NY):
+                cx = -d["loa"] / 2 + (i + 0.5) * d["loa"] / GZ_BUOY_NX
+                cy = -d["beam"] / 2 + (j + 0.5) * d["beam"] / GZ_BUOY_NY
+                cells.append(
+                    f"""
+      <collision name="hull_c{i}{j}">
+        <pose>{cx:.4f} {cy:.4f} {collision_z:.6f} 0 0 0</pose>
+        <geometry><box><size>{d['loa']/GZ_BUOY_NX:.4f} """
+                    f"""{d['beam']/GZ_BUOY_NY:.4f} {d['depth']:.4f}</size></box></geometry>
+      </collision>""")
+        collision_xml = "".join(cells)
+    model_sdf = model_sdf.replace("<!--COLLISION-->", collision_xml)
+
     c = report["coefficients"]
     # 수직면 3축 계수 (B-3a): 정역학 실계산값 기반 실추정 —
     # 부분 계수 차용은 비물리 모멘트로 피치 발산했음 (07-29 실측)
