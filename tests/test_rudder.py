@@ -88,3 +88,52 @@ def test_rudder_course_quality():
     xs, ys = np.array(res.x), np.array(res.y)
     path = float(np.sum(np.hypot(np.diff(xs), np.diff(ys))))
     assert path / (4 * 10 * L) < 1.15
+
+
+def test_single_thruster_rudder_completes_course():
+    """구성 B (단일+러더): 목표 속도 코스 완주 + 품질."""
+    import json
+    from pathlib import Path
+
+    from src.sim_adapters.python_sim import (
+        default_square_course,
+        simulate_course,
+        vessel_from_report,
+    )
+
+    report = json.loads(Path("outputs/planing_demo/report.json").read_text())
+    v = vessel_from_report(report)
+    wps = default_square_course(v.loa)
+    res = simulate_course(v, wps, report["goal"]["target_speed_ms"],
+                          steering="rudder1", t_max=1500.0)
+    assert res.success
+    assert res.control_design["steering"] == "single+rudder"
+    xs, ys = np.array(res.x), np.array(res.y)
+    path = float(np.sum(np.hypot(np.diff(xs), np.diff(ys))))
+    assert path / (4 * 10 * v.loa) < 1.4   # 저속 코너 쇠약 감안 완화 기준
+
+
+def test_simulate_course_rejects_unknown_steering():
+    from src.sim_adapters.python_sim import VesselModel, simulate_course
+
+    v = VesselModel(loa=2.0, m_x=100, m_y=150, i_z=50, yv=40, nv=10, nr=30,
+                    thrust_max=20, thruster_sep=0.8,
+                    speeds=(0.0, 1.0), resistances=(0.0, 10.0))
+    with pytest.raises(ValueError):
+        simulate_course(v, [(1.0, 0.0)], 1.0, steering="warp_drive")
+
+
+def test_steering_report_smoke(tmp_path):
+    """비교 리포트: JSON 스키마 + 3구성 전부 채점."""
+    import json
+    from pathlib import Path
+
+    from src.sim_adapters.steering_report import compare_steering
+
+    report = json.loads(Path("outputs/demo_cfd/report.json").read_text())
+    table = compare_steering(report)
+    for mode in ("diff", "rudder2", "rudder1"):
+        for phase in ("cruise", "low_speed"):
+            s = table["modes"][mode][phase]
+            assert set(s) == {"success", "duration_s", "path_ratio",
+                              "cross_track_sigma_m", "u_mean_ms"}
