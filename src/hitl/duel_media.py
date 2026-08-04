@@ -126,7 +126,7 @@ def race_gif(results: list[SimResult], dims_list: list[MainDimensions],
 
     speed_factor = t_end / max(duration_s, 1e-9)
     fig, axes = plt.subplots(1, 2, figsize=(14, 7), dpi=90)
-    fig.suptitle(f"⏩ {speed_factor:.0f}배속 재생 — 시뮬 {t_end:.0f}초를 "
+    fig.suptitle(f"{speed_factor:.0f}배속 재생 — 시뮬 {t_end:.0f}초를 "
                  f"{duration_s:.0f}초에 (시계는 시뮬 시간)", fontsize=11)
     for ax, label in zip(axes, labels):
         ax.plot(wx, wy, "o--", color="#94a3b8", ms=8, lw=1)
