@@ -185,20 +185,24 @@ def race_gif(results: list[SimResult], dims_list: list[MainDimensions],
 
 def turning_gif(vessels: list, dims_list: list[MainDimensions],
                 labels: list[str], path: str | Path,
-                fps: int = 15, duration_s: float = 5.0) -> Path:
+                fps: int = 15, duration_s: float = 5.0,
+                u_entry: float = 1.2) -> Path:
     """선회 시연 비교 GIF — 민첩성의 체감판 (오너: "영상이 중요해").
 
-    직진 가속 후 전타 고정 (좌 0 / 우 최대) — 각자의 물리로 원을
-    그림. 지표(agility_metrics)가 예측한 선회지름과 같은 방정식이라
-    영상 = 지표의 눈 버전."""
+    **목표 속도로 순항 중** 전타 고정 (좌 최대 / 우 0) — 각자의
+    물리로 원을 그림. 지표(agility_metrics)와 같은 방정식이라
+    영상 = 지표의 눈 버전.
+
+    진입 속도는 u_entry로 통일 (2026-08-04 오너 발굴 수리): 옛
+    "전추력 20초 가속"은 각자의 종단속도로 진입시켜 — 저저항 배가
+    외삽 영역 종단 10.3 m/s(목표의 8.6배, 비물리)로 122 m를 날아가는
+    불공정·비물리 시연이었음. 실물 전타 시연 규약 = 순항 중 타 꺾기."""
     from src.sim_adapters.python_sim import step
 
     trajs = []
     for v in vessels:
         state = np.zeros(6)
-        for _ in range(400):
-            state = step(v, state, v.thrust_max, v.thrust_max, 0.05)
-        state[0] = state[1] = 0.0            # 선회 시작점을 원점으로
+        state[3] = u_entry                   # 순항 속도로 진입 (통일)
         xs, ys = [], []
         for _ in range(3000):
             state = step(v, state, v.thrust_max, 0.0, 0.05)
@@ -264,5 +268,6 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
     g2 = race_gif(results, dims_list, list(labels), wps,
                   out / "duel_race.gif", vessels=vessels)
     g3 = turning_gif(vessels, dims_list, list(labels),
-                     out / "duel_turning.gif")
+                     out / "duel_turning.gif",
+                     u_entry=goal.target_speed_ms)
     return g1, g2, g3
