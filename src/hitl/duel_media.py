@@ -117,15 +117,20 @@ def race_gif(results: list[SimResult], dims_list: list[MainDimensions],
     stride = max(1, total_steps // frames)
     frames = total_steps // stride
     wx, wy = zip(*waypoints)
-    lim_pad = max(max(map(abs, wx)), max(map(abs, wy))) * 0.25 + 2
+    # 화면 범위 = 코스 ∪ 실제 궤적 전체 (오너 2026-08-04: "화면
+    # 크기를 늘려서 다 보이게" — 이탈 궤적이 잘리던 문제)
+    all_x = list(wx) + [x for r in results for x in r.x]
+    all_y = list(wy) + [y for r in results for y in r.y]
+    lim_pad = (max(max(all_x) - min(all_x),
+                   max(all_y) - min(all_y))) * 0.08 + 2
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 6), dpi=90)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7), dpi=90)
     for ax, label in zip(axes, labels):
         ax.plot(wx, wy, "o--", color="#94a3b8", ms=8, lw=1)
         ax.set_aspect("equal")
         ax.set_title(label, fontsize=11)
-        ax.set_xlim(min(wx) - lim_pad, max(wx) + lim_pad)
-        ax.set_ylim(min(wy) - lim_pad, max(wy) + lim_pad)
+        ax.set_xlim(min(all_x) - lim_pad, max(all_x) + lim_pad)
+        ax.set_ylim(min(all_y) - lim_pad, max(all_y) + lim_pad)
         ax.grid(alpha=0.2)
     trails = [ax.plot([], [], "-", color="#0f766e", lw=1.4)[0]
               for ax in axes]
@@ -265,9 +270,9 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
         results.append(simulate_waypoints(vessel, wps,
                                           u_desired=goal.target_speed_ms))
     g1 = rotating_gif(meshes, list(labels), out / "duel_shape.gif")
-    # 12 s 재생 (오너 4R: "5초 압축은 느린 배의 여정이 안 보인다")
+    # 20 s 재생 (오너: 시간·화면 늘려 여정 전체 가시화)
     g2 = race_gif(results, dims_list, list(labels), wps,
-                  out / "duel_race.gif", vessels=vessels, duration_s=12.0)
+                  out / "duel_race.gif", vessels=vessels, duration_s=20.0)
     g3 = turning_gif(vessels, dims_list, list(labels),
                      out / "duel_turning.gif",
                      u_entry=goal.target_speed_ms)
