@@ -40,15 +40,19 @@ def report_for_dims(dims: MainDimensions, goal: GoalSpec) -> dict:
     run_pipeline의 Wigley 경로 축약 — 나선 수렴 + 계수까지 동일 물리."""
     from src.pipeline import design_spiral
 
-    mesh = generate_hull_mesh(dims)
+    from src.ai.hull_generator import cm_for_purpose
+
+    hull_cm = cm_for_purpose(goal.purpose)
+    mesh = generate_hull_mesh(dims, cm=hull_cm)
     weights, hydro, resist, motors, batt_kg, _ = design_spiral(
         mesh, dims, goal)
-    n_exp, m_exp = solve_exponents(dims.cb)
+    n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
     coeffs = estimate_coefficients(
         dims=dims, draft=hydro.draft, mass=weights.total_mass,
         lcg=weights.lcg, speed=goal.target_speed_ms,
         mesh=mesh, n_exp=n_exp, m_exp=m_exp)
     return {
+        "hull_cm": hull_cm,
         "goal": dataclasses.asdict(goal),
         "dimensions": dataclasses.asdict(dims),
         "weights": dataclasses.asdict(weights),

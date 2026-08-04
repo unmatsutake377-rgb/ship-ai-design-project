@@ -17,7 +17,20 @@ import trimesh
 
 from src.core.types import MainDimensions
 
-DEFAULT_CM = 0.78          # 소형 배수량정 대표 중앙단면계수 (가정, 리포트에 기록)
+DEFAULT_CM = 0.78          # 구세계 기본 (하위 호환 — 구 리포트 재현용)
+
+# 용도별 중앙단면계수 (2026-08-04, 스펙 hull-bottoms — 오너 승인):
+# Ship-D 300척 바닥 폭비율 실측 역산 (f10 25/50/75분위 = Cm
+# 0.73/0.85/0.92) + 문헌 (배수량·반배수량 표준 선저 = round bilge,
+# 반배수량은 fine 쪽). 활주는 Cm 개념 밖 (V바닥 별도 계열).
+CM_BY_PURPOSE = {"survey": 0.85, "workboat": 0.92, "patrol": 0.80}
+
+
+def cm_for_purpose(purpose: str, override: float | None = None) -> float:
+    """용도 → 중앙단면계수 (선저 풍만도). override 우선."""
+    if override is not None:
+        return float(override)
+    return CM_BY_PURPOSE.get(purpose, DEFAULT_CM)
 CP_RANGE = (0.35, 0.85)    # 지수 역산이 건전한 프리즘계수 범위
 CB_ENVELOPE = (CP_RANGE[0] * DEFAULT_CM, CP_RANGE[1] * DEFAULT_CM)  # (0.273, 0.663)
 
@@ -51,9 +64,13 @@ def _half_breadth(x: float, z: float, dims: MainDimensions,
 
 
 def generate_hull_mesh(dims: MainDimensions, n_stations: int = 61,
-                       n_below: int = 15, n_above: int = 9) -> trimesh.Trimesh:
-    """watertight 선체 메쉬 생성. 좌표계: x 선수미(+선수), y 좌우, z 상방(0=킬)."""
-    n, m = solve_exponents(dims.cb)
+                       n_below: int = 15, n_above: int = 9,
+                       cm: float = DEFAULT_CM) -> trimesh.Trimesh:
+    """watertight 선체 메쉬 생성. 좌표계: x 선수미(+선수), y 좌우, z 상방(0=킬).
+
+    cm: 중앙단면계수 — 선저 풍만도 (용도별 프리셋 CM_BY_PURPOSE,
+    2026-08-04). 기본 0.78 = 구세계 호환."""
+    n, m = solve_exponents(dims.cb, cm)
     return _build_mesh(lambda x, z: _half_breadth(x, z, dims, n, m),
                        dims, n_stations, n_below, n_above, cap_stern=False)
 
@@ -204,7 +221,11 @@ def generate_transom_hull_mesh(dims: MainDimensions, n_stations: int = 61,
 # 주의: 이 계열은 Cb를 목표로 역산하지 않음 — 데드라이즈·차인 기하가
 # 단면을 결정 (dims.cb는 참고값). 부양·필터는 메쉬 기반이라 무관.
 
-PLANING_DEADRISE_DEG = 15.0   # 데드라이즈 각 (소형 활주정 통상 10~20°)
+# 데드라이즈 15° — A급 근거 승격 (2026-08-04 조사): Savitsky 방법
+# 자체가 10~30° 프리즘 실험 회귀 (Davidson Lab); 실선 트랜섬 통상
+# 10~24° (semi-V 10~17 / deep-V 21~25); 소형·RC 표준 15°.
+# deep-V 20° (거친 물) 옵션은 백로그.
+PLANING_DEADRISE_DEG = 15.0
 PLANING_TRANSOM_RATIO = 0.90  # 트랜섬 폭비 (활주정은 선미가 거의 전폭)
 PLANING_BOW_FRACTION = 0.35   # 선수 테이퍼 구간 / 전장
 

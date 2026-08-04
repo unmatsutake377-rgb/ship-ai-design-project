@@ -21,6 +21,7 @@ from src.ai.dimension_estimator import (
 )
 from src.ai.hull_generator import (
     CbOutOfRangeError,
+    cm_for_purpose,
     generate_hull_mesh,
     generate_transom_hull_mesh,
     solve_exponents,
@@ -104,7 +105,8 @@ def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
 
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  loa: float | None = None,
-                 payload_volume: float | None = None) -> dict:
+                 payload_volume: float | None = None,
+                 cm_override: float | None = None) -> dict:
     """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -118,7 +120,10 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     # 체계별 경로: 배수량 = Wigley + 해석 Michell / 반배수량 = 트랜섬 +
     # 메쉬 Michell·기저항 (C-1) / 활주 = 데드라이즈 프리즘 + Savitsky (C-2)
     criteria = None  # 기본 밴드 — 활주 분기에서만 교체
+    hull_cm = None
     if regime is Regime.SEMI_DISPLACEMENT:
+        # 반배수량(트랜섬 계열)은 자체 TRANSOM_CM — patrol 프리셋 0.80은
+        # 후속 (트랜섬 solver cm 배선 대기), 기록만
         mesh = generate_transom_hull_mesh(dims)
         n_exp = m_exp = None
 
@@ -159,8 +164,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                 total=st.resistance_n,
                 effective_power=st.resistance_n * s_)
     else:
-        mesh = generate_hull_mesh(dims)
-        n_exp, m_exp = solve_exponents(dims.cb)
+        hull_cm = cm_for_purpose(goal.purpose, cm_override)
+        mesh = generate_hull_mesh(dims, cm=hull_cm)
+        n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
         resistance_fn = None
 
     weights, hydro, resist, motors, batt_kg, iteration = \
@@ -217,6 +223,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "dimensions": dataclasses.asdict(dims),
         "dimension_basis": band_report(goal.purpose),
         "regime": regime.name,
+        "hull_cm": hull_cm,
         "froude_length": froude_length(goal.target_speed_ms, dims.loa),
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
         "max_displacement_speed": vmax,
@@ -326,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--endurance", type=float, default=None,
                         help="항속시간 [h] (생략 시 기본값 — 활주형은 "
                              "전력 소모가 커서 짧게 잡아야 배터리가 가벼움)")
+    parser.add_argument("--cm", type=float, default=None,
+                        help="중앙단면계수 덮어쓰기 (선저 풍만도 — 기본은 "
+                             "용도 프리셋: survey 0.85/workboat 0.92)")
     parser.add_argument("--payload-volume", type=float, default=None,
                         help="짐 부피 [m³] 직접 입력 (생략 시 용도별 "
                              "화물 밀도 개략 가정으로 무게→부피 환산)")
@@ -352,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     goal = GoalSpec(**goal_kwargs)
     try:
         report = run_pipeline(goal, args.out, loa=args.loa,
+                              cm_override=args.cm,
                               payload_volume=args.payload_volume)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
