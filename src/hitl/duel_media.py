@@ -42,10 +42,13 @@ def report_for_dims(dims: MainDimensions, goal: GoalSpec) -> dict:
 
     from src.ai.hull_generator import cm_for_purpose
 
+    from src.ai.hull_generator import lcb_for_purpose
+
     hull_cm = cm_for_purpose(goal.purpose)
-    mesh = generate_hull_mesh(dims, cm=hull_cm)
+    hull_lcb = lcb_for_purpose(goal.purpose)
+    mesh = generate_hull_mesh(dims, cm=hull_cm, lcb_frac=hull_lcb)
     weights, hydro, resist, motors, batt_kg, _ = design_spiral(
-        mesh, dims, goal)
+        mesh, dims, goal, cm=hull_cm, lcb_frac=hull_lcb)
     n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
     coeffs = estimate_coefficients(
         dims=dims, draft=hydro.draft, mass=weights.total_mass,
@@ -53,6 +56,7 @@ def report_for_dims(dims: MainDimensions, goal: GoalSpec) -> dict:
         mesh=mesh, n_exp=n_exp, m_exp=m_exp)
     return {
         "hull_cm": hull_cm,
+        "hull_lcb_frac": hull_lcb,
         "goal": dataclasses.asdict(goal),
         "dimensions": dataclasses.asdict(dims),
         "weights": dataclasses.asdict(weights),
@@ -75,7 +79,10 @@ def _mesh_for(row, purpose: str = "survey"
     from src.optimize import dims_from_vector
 
     dims = dims_from_vector(np.array([row.loa, row.lb, row.bt, row.cb]))
-    return dims, generate_hull_mesh(dims, cm=cm_for_purpose(purpose))
+    from src.ai.hull_generator import lcb_for_purpose
+
+    return dims, generate_hull_mesh(dims, cm=cm_for_purpose(purpose),
+                                    lcb_frac=lcb_for_purpose(purpose))
 
 
 def rotating_gif(meshes: list[trimesh.Trimesh], labels: list[str],
