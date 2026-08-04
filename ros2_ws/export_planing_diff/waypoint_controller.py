@@ -56,7 +56,7 @@ class Controller:
         self.prev_wp = (0.0, 0.0)
         self.tick = 0
         self.log = open("/sim/trajectory.csv", "w")
-        self.log.write("t,x,y,yaw,u,tl,tr,delta,wp\n")
+        self.log.write("t,x,y,yaw,u,tl,tr,delta,wp,err,r,moment\n")
 
     def step(self, msg) -> bool:
         """오도메트리 1건 처리. 완주 시 True."""
@@ -103,14 +103,20 @@ class Controller:
 
         moment = cfg["kp_psi"] * ssa(psi_d - psi) - cfg["kd_psi"] * r
         delta = 0.0
-        if cfg.get("steering") in ("rudder2", "rudder1"):
+        rudder_ok = (cfg.get("steering") in ("rudder2", "rudder1")
+                     and u >= cfg.get("rudder", {}).get("min_speed", 0.0))
+        if rudder_ok:
             # 러더 우선 (스펙 4단계, python 1단계와 같은 법칙):
             # 현재 유속의 각도당 모멘트로 필요 타각 역산, 잔여만 차동.
             rd = cfg["rudder"]
             n_per_rad = (0.5 * 1025.0 * max(u, 0.05) ** 2 * rd["area"]
-                         * rd["cla"] * abs(rd["x_pos"]))
-            delta = rd["sign"] * max(-rd["max_rad"],
-                                     min(rd["max_rad"],
+                         * rd["cla"] * abs(rd["x_pos"])
+                         * rd.get("gz_efficiency", 1.0))
+            # 클램프 = 실속각 (max_rad 아님): 실속 밖 명령은 물리적
+            # 낭비 (2026-08-03의 "실속 반전" 진단은 wrap 오독으로
+            # 철회 — 2026-08-04. 클램프 자체는 유효해 유지)
+            delta = rd["sign"] * max(-rd["stall_rad"],
+                                     min(rd["stall_rad"],
                                          moment / max(n_per_rad, 1e-9)))
             d_eff = max(-rd["stall_rad"], min(rd["stall_rad"], delta))
             n_rudder = n_per_rad * d_eff * rd["sign"]
@@ -132,7 +138,11 @@ class Controller:
                 diff = max(-d_max,
                            min(d_max,
                                moment_res / cfg["thruster_separation"]))
-            tl, tr = common + diff, common - diff
+            # 직립 세계 재캘리브레이션 (2026-08-03 부양 자세 캠페인):
+            # 옛 "왼쪽 강함 = 반시계"는 뒤집힌 배의 실측이었음 — 배가
+            # 뒤집히면 요 축도 뒤집힘. 직립 실측: 좌만 15N → yaw −80°
+            # (시계) → +모멘트는 오른쪽 강함.
+            tl, tr = common - diff, common + diff
             pub_rudder(delta)
         else:
             diff = max(-cfg["thrust_max"],
@@ -141,7 +151,9 @@ class Controller:
             headroom = cfg["thrust_max"] - abs(diff)
             common = max(0.0, min(headroom, cfg["kp_u"] * (u_cmd - u)))
 
-            tl, tr = common + diff, common - diff  # 왼쪽 강함 = 반시계
+            # 직립 재캘리브레이션 (2026-08-03): 좌강 = 시계(−요) 실측
+            # — 옛 반전(b9a9f45)은 뒤집힌 배 기준이었음
+            tl, tr = common - diff, common + diff
             if min(tl, tr) < 0:  # 후진 금지 — 모멘트 보존 상향
                 shift = -min(tl, tr)
                 tl += shift
@@ -153,8 +165,10 @@ class Controller:
         pub_thrust("right", tr)
         st = msg.get("header", {}).get("stamp", {})
         t_sim = float(st.get("sec", 0)) + float(st.get("nsec", 0)) * 1e-9
+        err_dbg = ssa(psi_d - psi)
         self.log.write(f"{t_sim:.1f},{x:.3f},{y:.3f},{psi:.3f},{u:.3f},"
-                       f"{tl:.1f},{tr:.1f},{delta:.3f},{self.wp_index}\n")
+                       f"{tl:.1f},{tr:.1f},{delta:.3f},{self.wp_index},"
+                       f"{err_dbg:.3f},{r:.3f},{moment:.1f}\n")
         self.log.flush()
         return False
 
