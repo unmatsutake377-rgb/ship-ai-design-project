@@ -16,7 +16,7 @@ def barge_feats():
 
 
 def test_feature_count():
-    assert len(FEATURE_NAMES) == N_FEATURES == 32
+    assert len(FEATURE_NAMES) == N_FEATURES == 34
 
 
 def test_barge_v3_equilibrium_features(barge_feats):

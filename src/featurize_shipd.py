@@ -30,7 +30,7 @@ from src.physics.resistance import wetted_surface
 
 TARGET_LOA = 3.0                      # 선별과 동일 상사 기준
 DRAFT_FRACS = (0.3, 0.5, 0.7)         # 기준 흘수 3단 (형심 대비)
-N_FEATURES = 32
+N_FEATURES = 34
 
 # v3 (2026-08-03, 스펙 features-v3): 평형 정합 + 다충실도
 # ① 평형 흘수를 고정 150 kg 개략 대신 라벨 파이프라인과 같은 무게
@@ -63,6 +63,8 @@ FEATURE_NAMES = (
        "gmb_proxy", "entrance_deg", "capacity_ratio"]
     # v3: 다충실도 2 (저해상 조파 / 저해상 총저항)
     + ["r_wave_lo", "r_michell_lo"]
+    # v3.1: 안정 다충실도 2 (실 KG·KB·BM 기반 GM/B + 라벨형 밴드 여유)
+    + ["gmb_full", "stab_margin_lo"]
 )
 
 
@@ -160,6 +162,24 @@ def hull_features(mesh: trimesh.Trimesh) -> np.ndarray:
         wet_lo = wetted_surface(mesh, t_lo)
         rf_lo = frictional_resistance(LABEL_SPEED_MS, loa, wet_lo)
         feats += [rw_lo, rf_lo + rw_lo]
+    except Exception:
+        feats += [np.nan] * 2
+
+    # ---- v3.1: 안정 다충실도 (스펙 features-v3 후속, 2026-08-04) ----
+    # v3의 안정 프록시(gmb_proxy)는 KG를 0.65D 고정 개략으로 씀 —
+    # 라벨 KG는 배별 무게 구성(구조/짐/추진 가중)으로 제각각. 안정판
+    # 다충실도: 라벨과 같은 무게 모델 KG + 평형 흘수 실측 KB·BM.
+    # 라벨이 min(gmb−lo, hi−gmb) 비선형이라 그 형태 그대로도 준다.
+    try:
+        from src.physics.hydrostatics import kb_bm
+
+        t_s = float(min(max(t_eq, 0.05 * depth), 0.9 * depth))
+        kb, bm = kb_bm(mesh, t_s)
+        kg_model = estimate_weights(float(mesh.area), depth,
+                                    LABEL_PAYLOAD_KG).kg
+        gmb_full = (kb + bm - kg_model) / beam
+        feats += [gmb_full,
+                  min(gmb_full - 0.04, 0.40 - gmb_full)]
     except Exception:
         feats += [np.nan] * 2
     return np.array(feats, dtype=np.float64)
