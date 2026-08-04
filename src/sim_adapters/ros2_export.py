@@ -532,13 +532,19 @@ def export_control_yaml(report: dict, out_dir: str | Path,
             "area": float(rg["area"]), "cla": float(rg["cla"]),
             "x_pos": float(rg["x_pos"]), "max_rad": float(rg["max_rad"]),
             "stall_rad": float(rg["stall_rad"]),
-            # 부호: gz LiftDrag 방향 규약은 스텝 실험으로 검정 —
-            # 뒤집히면 여기만 −1 (컨트롤러가 곱해 씀)
-            "sign": 1.0,
-            # gz 저속 러더 반전 아티팩트 (2026-08-03 직립 실측:
-            # δ+0.15 → u0.77에서 yaw −83° / u1.37에서 +112°) —
-            # 문턱 아래는 차동 조타 (구성 A 저속 철학과 일치)
-            "min_speed": 1.1,
+            # 부호 = −1 (2026-08-04 연속 궤적 실측): gz LiftDrag
+            # +δ → 시계(−요) — 파이썬 규약과 반대. ⚠ 단일 끝점 yaw
+            # 판독은 wrap 오독 위험 (−248°를 +112°로 3연속 오진했던
+            # 전례) — 부호 검정은 반드시 r 시계열로.
+            "sign": -1.0,
+            # 저속 문턱 해제 (0): "저속 반전 아티팩트"는 wrap 오독
+            # 이었음 — 러더는 전 속도 일관 부호, V²로 자연 약화
+            "min_speed": 0.0,
+            # gz LiftDrag 실효 이득 실측 (2026-08-04): 정상 선회
+            # r=−0.123 @δ0.25·u1.37 → nr×r/δ ≈ 27 N·m/rad vs 모형
+            # 예측 309 — 비율 ~0.09. 원인(LiftDrag 내부 감쇠/유효
+            # 면적) 미규명 — 계측 보정 상수로 정직 반영
+            "gz_efficiency": 0.09,
         }
     path = out / "control.yaml"
     with open(path, "w") as f:

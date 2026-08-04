@@ -110,7 +110,8 @@ class Controller:
             # 현재 유속의 각도당 모멘트로 필요 타각 역산, 잔여만 차동.
             rd = cfg["rudder"]
             n_per_rad = (0.5 * 1025.0 * max(u, 0.05) ** 2 * rd["area"]
-                         * rd["cla"] * abs(rd["x_pos"]))
+                         * rd["cla"] * abs(rd["x_pos"])
+                         * rd.get("gz_efficiency", 1.0))
             # 클램프 = 실속각 (max_rad 아님): gz LiftDrag는 실속 밖에서
             # 양력이 반전됨 (직립 실측 2026-08-03: δ+0.61→yaw −129° vs
             # +0.25→+112°) — 실속 밖 명령은 조타 역전 + 물리적 낭비
