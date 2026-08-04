@@ -265,8 +265,9 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
         results.append(simulate_waypoints(vessel, wps,
                                           u_desired=goal.target_speed_ms))
     g1 = rotating_gif(meshes, list(labels), out / "duel_shape.gif")
+    # 12 s 재생 (오너 4R: "5초 압축은 느린 배의 여정이 안 보인다")
     g2 = race_gif(results, dims_list, list(labels), wps,
-                  out / "duel_race.gif", vessels=vessels)
+                  out / "duel_race.gif", vessels=vessels, duration_s=12.0)
     g3 = turning_gif(vessels, dims_list, list(labels),
                      out / "duel_turning.gif",
                      u_entry=goal.target_speed_ms)
