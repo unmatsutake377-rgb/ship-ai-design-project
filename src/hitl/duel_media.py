@@ -63,15 +63,19 @@ def report_for_dims(dims: MainDimensions, goal: GoalSpec) -> dict:
     }
 
 
-def _mesh_for(row) -> tuple[MainDimensions, trimesh.Trimesh]:
+def _mesh_for(row, purpose: str = "survey"
+              ) -> tuple[MainDimensions, trimesh.Trimesh]:
     """파레토 행 → 치수·메쉬 — optimize와 동일 변환 규약 사용.
 
     (손수 조립하면 depth 규약이 어긋나 평형 흘수 > 설계 흘수 →
-    Wigley 수식이 NaN — 실측 후 dims_from_vector로 통일)"""
+    Wigley 수식이 NaN — 실측 후 dims_from_vector로 통일)
+    cm 배선 (2026-08-05 오너 발굴): 물리·파레토는 신세계 Cm인데
+    회전 GIF 메쉬만 구세계 기본으로 생성되던 누락 — 용도 프리셋 적용."""
+    from src.ai.hull_generator import cm_for_purpose
     from src.optimize import dims_from_vector
 
     dims = dims_from_vector(np.array([row.loa, row.lb, row.bt, row.cb]))
-    return dims, generate_hull_mesh(dims)
+    return dims, generate_hull_mesh(dims, cm=cm_for_purpose(purpose))
 
 
 def rotating_gif(meshes: list[trimesh.Trimesh], labels: list[str],
@@ -263,7 +267,8 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
     """파레토 행 2개 → (회전 3D GIF, 주행 비교 GIF)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    pairs = [_mesh_for(r) for r in (row_a, row_b)]
+    pairs = [_mesh_for(r, purpose=goal.purpose)
+             for r in (row_a, row_b)]
     dims_list = [d for d, _ in pairs]
     meshes = [m for _, m in pairs]
     # 공통 절대 코스 (두 배 평균 길이 기준) — 같은 트랙이어야 공정
