@@ -18,8 +18,11 @@ FORM_COLS = ("loa", "lb", "cb")   # 형태·체급 축
 OBJ_COLS = ("resistance_n", "total_mass_kg", "stability_margin")
 
 
+# obj_min 실측 캘리브레이션 (2026-08-04 신 ELO 1차전): z거리
+# ~0.3 쌍을 오너가 '차이 사실상 없음' 무승부 판정 — 하한을
+# 그 위로 (구분 가능한 트레이드오프만 매칭)
 def similar_pairs(df: pd.DataFrame, n_pairs: int = 3,
-                  obj_min: float = 0.25,
+                  obj_min: float = 0.8,
                   ) -> list[tuple[pd.Series, pd.Series, float]]:
     """전선에서 "형태는 비슷, 목적은 갈리는" 쌍 n개.
 

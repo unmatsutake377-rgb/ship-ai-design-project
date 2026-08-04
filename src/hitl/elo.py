@@ -18,6 +18,7 @@ from pathlib import Path
 INITIAL_RATING = 1500.0
 K_FACTOR = 32.0
 COLUMNS = ["winner", "loser", "timestamp"]
+DRAW_MARK = "draw"   # reason 열 대신 별도 열 — 구형 행은 빈 값 (승부)
 
 
 def expected_score(rating_a: float, rating_b: float) -> float:
@@ -26,13 +27,18 @@ def expected_score(rating_a: float, rating_b: float) -> float:
 
 
 def record_comparison(winner_id: str, loser_id: str,
-                      csv_path: str | Path, reason: str = "") -> None:
+                      csv_path: str | Path, reason: str = "",
+                      draw: bool = False) -> None:
     """비교 결과 1건 기록 (append-only).
 
     reason: 선택 이유 (오너 제안 2026-08-02 — "수정 피드백을 같이
     적어주면 도움 되나?"에서 채택). 이유가 있으면 ① 오클릭 구분
     ② 취향의 구조가 데이터화 ③ 대결 조건의 결함(제어 거동 혼입 등)
-    발견 — 세 몫을 한다. 점수 계산에는 미사용, 기록·분석용."""
+    발견 — 세 몫을 한다. 점수 계산에는 미사용, 기록·분석용.
+
+    draw=True (2026-08-04 신 ELO 1차전에서 도입): 무승부 — 표준
+    ELO대로 양쪽 실득 0.5. 무승부도 정보다: "이 정도 차이는 사람
+    눈에 구분 불가"라는 매치메이킹 문턱의 실측 라벨."""
     if winner_id == loser_id:
         raise ValueError(f"자기 자신과 비교 불가: {winner_id!r}")
     path = Path(csv_path)
@@ -41,10 +47,10 @@ def record_comparison(winner_id: str, loser_id: str,
     with path.open("a", newline="") as f:
         writer = csv.writer(f)
         if is_new:
-            writer.writerow(COLUMNS + ["reason"])
+            writer.writerow(COLUMNS + ["reason", "result"])
         writer.writerow(
             [winner_id, loser_id, datetime.now(timezone.utc).isoformat(),
-             reason]
+             reason, DRAW_MARK if draw else ""]
         )
 
 
@@ -60,6 +66,8 @@ def compute_ratings(csv_path: str | Path) -> dict[str, float]:
             rw = ratings.get(w, INITIAL_RATING)
             rl = ratings.get(l, INITIAL_RATING)
             e_w = expected_score(rw, rl)
-            ratings[w] = rw + K_FACTOR * (1.0 - e_w)
-            ratings[l] = rl - K_FACTOR * (1.0 - e_w)
+            # 무승부: 실득 0.5 (구형 CSV엔 result 열 없음 — 승부 취급)
+            score = 0.5 if row.get("result") == "draw" else 1.0
+            ratings[w] = rw + K_FACTOR * (score - e_w)
+            ratings[l] = rl - K_FACTOR * (score - e_w)
     return ratings
