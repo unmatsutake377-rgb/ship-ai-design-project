@@ -23,6 +23,7 @@ from src.ai.hull_generator import (
     CbOutOfRangeError,
     cm_for_purpose,
     generate_hull_mesh,
+    lcb_for_purpose,
     generate_transom_hull_mesh,
     solve_exponents,
     submerged_transom_area,
@@ -59,7 +60,8 @@ from src.physics.weights import estimate_weights
 
 
 def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
-                  criteria=None):
+                  criteria=None, cm: float | None = None,
+                  lcb_frac: float = 0.0):
     """설계 나선: 중량 → 흘수 → 저항 → 모터·배터리 → 중량 … 수렴까지.
 
     추진계 중량을 고정비율 개략에서 시작해 실측(모터+배터리)으로 수렴.
@@ -70,8 +72,16 @@ def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
     (예: 메쉬형 Michell — Ship-D 임의 형상, Savitsky — 활주).
     기본은 Wigley 해석 경로. criteria로 체계별 안정성 밴드 주입 가능.
     """
-    n_exp, m_exp = solve_exponents(dims.cb) if resistance_fn is None \
-        else (None, None)
+    # 저항 경로 정합 (2026-08-05 asym-hull에서 발굴한 혼합 세계 구멍):
+    # 해석형 Michell은 대칭 Wigley 전제 + 지수에 cm 반영 필요.
+    # 비대칭(lcb≠0)은 해석형 무효 → 메쉬형 Michell(이중검증)로 전환.
+    if resistance_fn is None and abs(lcb_frac) > 1e-9:
+        from src.physics.resistance import total_resistance_mesh
+        resistance_fn = (lambda m_, d_, s_, w_=None:
+                         total_resistance_mesh(m_, dims.loa, d_, s_))
+    n_exp, m_exp = (solve_exponents(dims.cb, cm) if cm is not None
+                    else solve_exponents(dims.cb)) \
+        if resistance_fn is None else (None, None)
     propulsion_mass: float | None = None
     prev_total: float | None = None
     for iteration in range(1, MAX_SPIRAL_ITER + 1):
@@ -121,6 +131,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     # 메쉬 Michell·기저항 (C-1) / 활주 = 데드라이즈 프리즘 + Savitsky (C-2)
     criteria = None  # 기본 밴드 — 활주 분기에서만 교체
     hull_cm = None
+    spiral_kw: dict = {}
     if regime is Regime.SEMI_DISPLACEMENT:
         # 반배수량(트랜섬 계열)은 자체 TRANSOM_CM — patrol 프리셋 0.80은
         # 후속 (트랜섬 solver cm 배선 대기), 기록만
@@ -165,13 +176,46 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                 effective_power=st.resistance_n * s_)
     else:
         hull_cm = cm_for_purpose(goal.purpose, cm_override)
-        mesh = generate_hull_mesh(dims, cm=hull_cm)
+        hull_lcb = lcb_for_purpose(goal.purpose)   # 비대칭 기본 승격 (08-05)
+        mesh = generate_hull_mesh(dims, cm=hull_cm, lcb_frac=hull_lcb)
+        spiral_kw = {"cm": hull_cm, "lcb_frac": hull_lcb}
         n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
         resistance_fn = None
 
     weights, hydro, resist, motors, batt_kg, iteration = \
         design_spiral(mesh, dims, goal, resistance_fn=resistance_fn,
-                      criteria=criteria)
+                      criteria=criteria, **spiral_kw)
+
+    payload_lcg_frac = None
+    try:
+        from src.physics.hydrostatics import (
+            longitudinal_properties,
+            trim_angle_deg,
+        )
+        from src.physics.weights import estimate_weights as _ew
+
+        _lcb_x, _bml = longitudinal_properties(mesh, hydro.draft)
+        static_trim_deg = trim_angle_deg(
+            lcg_x=weights.lcg, lcb_x=_lcb_x, kb=hydro.kb, bml=_bml,
+            kg=weights.kg)
+        # 짐 배치 균형 처방 (실선 방식): LCG=LCB가 되는 짐 위치 역산.
+        # 질량·흘수·KG 불변 (x만 이동)이라 1회 재계산으로 정확.
+        if static_trim_deg is not None and weights.payload_mass > 0:
+            # 구조 LCG=0(중앙) 가정 유지 — 항: 추진(−0.45L)만 상쇄
+            x_p = (_lcb_x * weights.total_mass
+                   - weights.propulsion_mass * (-0.45 * dims.loa)) \
+                / weights.payload_mass
+            payload_lcg_frac = float(x_p / dims.loa)
+            # 선체 안 제약 (±0.35L) — 밖이면 잔여 트림 정직 표기
+            payload_lcg_frac = max(-0.35, min(0.35, payload_lcg_frac))
+            weights = _ew(float(mesh.area), dims.depth, goal.payload_kg,
+                          weights.propulsion_mass, loa=dims.loa,
+                          payload_lcg_frac=payload_lcg_frac)
+            static_trim_deg = trim_angle_deg(
+                lcg_x=weights.lcg, lcb_x=_lcb_x, kb=hydro.kb, bml=_bml,
+                kg=weights.kg)
+    except Exception:
+        static_trim_deg = None
 
     coeff_resistance = (None if resistance_fn is None else
                         (lambda m_, d_, s_: resistance_fn(m_, d_, s_,
@@ -224,6 +268,12 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "dimension_basis": band_report(goal.purpose),
         "regime": regime.name,
         "hull_cm": hull_cm,
+        # 정적 트림 (2026-08-05 asym-hull): LCB≠0 세계의 실물리 균형.
+        # 소각 선형 θ=(LCG−LCB)/GML (다구획 3단계 도구 재사용).
+        # 구식 trim_warning(LCB=0 가정)은 weights에 잔존 — 이 값이 정본.
+        "static_trim_deg": static_trim_deg,
+        "payload_lcg_frac": payload_lcg_frac,
+        "hull_lcb_frac": hull_lcb if regime is Regime.DISPLACEMENT else 0.0,
         "froude_length": froude_length(goal.target_speed_ms, dims.loa),
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
         "max_displacement_speed": vmax,

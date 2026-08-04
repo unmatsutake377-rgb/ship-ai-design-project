@@ -43,7 +43,8 @@ class WeightEstimate:
 
 def estimate_weights(hull_area_m2: float, depth: float, payload_kg: float,
                      propulsion_mass_kg: float | None = None,
-                     loa: float = 0.0) -> WeightEstimate:
+                     loa: float = 0.0,
+                     payload_lcg_frac: float | None = None) -> WeightEstimate:
     """중량·KG·LCG·Izz 추정 (분포모델 — 점질량 3개 + 구조 회전반경).
 
     propulsion_mass_kg 지정 시 실측(선택 모터+배터리 계산값)을 사용 —
@@ -64,7 +65,9 @@ def estimate_weights(hull_area_m2: float, depth: float, payload_kg: float,
     kg = (structure * vcg_s + payload_kg * vcg_p + propulsion * vcg_m) / total
 
     x_s = LCG_STRUCTURE_OVER_L * loa
-    x_p = LCG_PAYLOAD_OVER_L * loa
+    # 짐 세로 위치: 기본 중앙, 트림 균형 처방 시 지정 (asym-hull 08-05)
+    x_p = (payload_lcg_frac if payload_lcg_frac is not None
+           else LCG_PAYLOAD_OVER_L) * loa
     x_m = LCG_PROPULSION_OVER_L * loa
     lcg = (structure * x_s + payload_kg * x_p + propulsion * x_m) / total
     izz = (structure * (KZZ_OVER_L * loa) ** 2

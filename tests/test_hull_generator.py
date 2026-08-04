@@ -84,3 +84,58 @@ def test_survey_bottom_within_shipd_band():
     pts = np.vstack([e.discrete(sec.vertices) for e in sec.entities])
     f10 = (pts[:, 1].max() - pts[:, 1].min()) / dims.beam
     assert 0.25 <= f10 <= 0.75
+
+
+def test_asym_exponents_hand_calc():
+    """비대칭 지수 역산 손계산: Cp·LCB 목표 동시 달성.
+
+    대칭 극한 (lcb=0): n_b = n_s = 기존 solve_exponents와 동일."""
+    from src.ai.hull_generator import solve_asym_exponents, solve_exponents
+
+    n_sym, _ = solve_exponents(0.45, 0.85)
+    n_b, n_s = solve_asym_exponents(0.45, cm=0.85, lcb_frac=0.0)
+    assert n_b == pytest.approx(n_sym, rel=1e-3)
+    assert n_s == pytest.approx(n_sym, rel=1e-3)
+    # LCB 전방(음수, +x=선수... 규약: lcb_frac<0 = 선미쪽? 아니 —
+    # 본 스펙 규약: lcb_frac = (LCB−중앙)/L, +가 선수쪽) → 선수 풍만
+    n_b2, n_s2 = solve_asym_exponents(0.45, cm=0.85, lcb_frac=+0.02)
+    assert n_b2 > n_s2      # 선수쪽 지수가 커야 선수가 풍만
+
+
+def test_asym_mesh_lcb_matches_target():
+    """생성 메쉬의 실제 부피 도심이 목표 LCB에 안착 (±0.3%L)."""
+    import numpy as np
+
+    from src.ai.hull_generator import generate_hull_mesh
+    from src.core.types import MainDimensions
+
+    dims = MainDimensions(loa=3.0, beam=0.9, depth=0.45,
+                          draft_design=0.28, cb=0.45)
+    for target in (0.0, 0.02, -0.02):
+        mesh = generate_hull_mesh(dims, cm=0.85, lcb_frac=target)
+        assert mesh.is_watertight
+        lcb = float(mesh.center_mass[0]) / dims.loa
+        assert abs(lcb - target) < 0.003, (target, lcb)
+
+
+def test_asym_default_symmetric_regression():
+    """저수준 기본(asym 미지정) = 대칭 — Michell 해석해 표준기 보존."""
+    import numpy as np
+
+    from src.ai.hull_generator import generate_hull_mesh
+    from src.core.types import MainDimensions
+
+    dims = MainDimensions(loa=3.0, beam=0.9, depth=0.45,
+                          draft_design=0.28, cb=0.45)
+    mesh = generate_hull_mesh(dims, cm=0.85)
+    # 이산화 잔차 실측 ~7e-5·L — 0.1%L 문턱 (수학 대칭 확인용)
+    assert abs(float(mesh.center_mass[0])) < 1e-3 * dims.loa
+
+
+def test_lcb_by_purpose_within_shipd_band():
+    """용도 프리셋 LCB가 Ship-D 실측 10~90분위(−11.5%~+5.7%... 규약
+    변환: 전방 = +) 안."""
+    from src.ai.hull_generator import LCB_BY_PURPOSE
+
+    for purpose, lcb in LCB_BY_PURPOSE.items():
+        assert -0.057 <= lcb <= 0.115, (purpose, lcb)

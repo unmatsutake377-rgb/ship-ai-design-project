@@ -18,7 +18,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.ai.hull_generator import cm_for_purpose, generate_hull_mesh
+from src.ai.hull_generator import (cm_for_purpose, generate_hull_mesh,
+                                   lcb_for_purpose)
 from src.core.regime import FN_DISPLACEMENT_MAX, froude_length
 from src.core.types import GoalSpec, MainDimensions
 from src.pipeline import design_spiral
@@ -52,9 +53,11 @@ def evaluate_candidate(x: np.ndarray, goal: GoalSpec,
     try:
         if froude_length(goal.target_speed_ms, dims.loa) >= FN_DISPLACEMENT_MAX:
             raise ValueError("반배수량 영역")
-        mesh = generate_hull_mesh(dims, cm=cm_for_purpose(goal.purpose))
+        _cm = cm_for_purpose(goal.purpose)
+        _lcb = lcb_for_purpose(goal.purpose)
+        mesh = generate_hull_mesh(dims, cm=_cm, lcb_frac=_lcb)
         weights, hydro, resist, motors, batt_kg, _ = \
-            design_spiral(mesh, dims, goal)
+            design_spiral(mesh, dims, goal, cm=_cm, lcb_frac=_lcb)
         if not hydro.passed:
             raise ValueError(f"정역학 필터 불합격: {hydro.checks}")
         # MaxBox 공간 검사 (#27 후속, 2026-08-03): 파이프라인만 검사하면
@@ -232,7 +235,10 @@ def main(argv: list[str] | None = None) -> int:
         row = df.loc[idx]
         dims = dims_from_vector(np.array([row["loa"], row["lb"],
                                           row["bt"], row["cb"]]))
-        generate_hull_mesh(dims).export(out / f"candidate_{tag}.stl")
+        generate_hull_mesh(
+            dims, cm=cm_for_purpose(args.purpose),
+            lcb_frac=lcb_for_purpose(args.purpose),
+        ).export(out / f"candidate_{tag}.stl")
 
     print(f"파레토 후보 {len(df)}척 → {out}/pareto.csv, pareto.png, "
           f"candidate_*.stl (3종)")
