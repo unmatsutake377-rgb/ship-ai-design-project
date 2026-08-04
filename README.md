@@ -128,7 +128,14 @@ python -m src.cfd.hook --report outputs/demo --mode simple --parse-only  # 라�
 **궁금할 때:**
 3. 코드·용어 아무거나 질문 — 설명이 이 프로젝트 목적의 절반. (기록: docs/feedback-log.md)
 
-## 6. 저장소 지도
+## 6. 옵시디언으로 읽기 (추천)
+
+이 저장소는 그대로 옵시디언 vault입니다: **옵시디언 → "Open folder as
+vault" → 이 프로젝트 폴더 선택** 후 `docs/00-시작-여기부터.md`를
+여세요 — 쉬운 설명서를 현관으로 순서대로 안내하는 길잡이가 있습니다.
+(비전공자 기준으로 쓰였습니다 — 조선공학 지식 불필요)
+
+## 7. 저장소 지도
 
 ```
 docs/INDEX.md             문서 지도 (여기부터)
