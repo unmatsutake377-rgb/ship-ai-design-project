@@ -1,5 +1,5 @@
-winner,loser,timestamp,reason
-pareto1_max_stability,pareto1_min_resistance,2026-07-27T06:24:28.306235+00:00,
-pareto1_min_mass,pareto1_max_stability,2026-07-27T06:35:39.051769+00:00,
-pareto3_min_mass,pareto3_min_resistance,2026-08-01T13:39:56.322803+00:00,"둘 다 완주(A 34s/B 36s), A가 목표 방향으로 빠르게 틀어 도착 — 민첩성 선호 (수리된 영상 기준, 오너 확정)"
+winner,loser,timestamp,reason,result
+pareto1_max_stability,pareto1_min_resistance,2026-07-27T06:24:28.306235+00:00,,
+pareto1_min_mass,pareto1_max_stability,2026-07-27T06:35:39.051769+00:00,,
+pareto3_min_mass,pareto3_min_resistance,2026-08-01T13:39:56.322803+00:00,"둘 다 완주(A 34s/B 36s), A가 목표 방향으로 빠르게 틀어 도착 — 민첩성 선호 (수리된 영상 기준, 오너 확정)",
 v2_11,v2_27,2026-08-04T14:29:54.850346+00:00,차이가 사실상 없음 — 무승부 (형태거리 0.02·목적 z거리 ~0.3은 구분 불가 실측),draw

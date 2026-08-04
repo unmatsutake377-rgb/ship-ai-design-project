@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.ai.hull_generator import generate_hull_mesh
+from src.ai.hull_generator import cm_for_purpose, generate_hull_mesh
 from src.core.regime import FN_DISPLACEMENT_MAX, froude_length
 from src.core.types import GoalSpec, MainDimensions
 from src.pipeline import design_spiral
@@ -52,7 +52,7 @@ def evaluate_candidate(x: np.ndarray, goal: GoalSpec,
     try:
         if froude_length(goal.target_speed_ms, dims.loa) >= FN_DISPLACEMENT_MAX:
             raise ValueError("반배수량 영역")
-        mesh = generate_hull_mesh(dims)
+        mesh = generate_hull_mesh(dims, cm=cm_for_purpose(goal.purpose))
         weights, hydro, resist, motors, batt_kg, _ = \
             design_spiral(mesh, dims, goal)
         if not hydro.passed:

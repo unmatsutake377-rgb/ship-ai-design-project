@@ -135,8 +135,10 @@ def vessel_from_report(report: dict) -> VesselModel:
     h = report["hydrostatics"]
     p = report["propulsion"]
 
-    mesh = generate_hull_mesh(dims)
-    n_exp, m_exp = solve_exponents(dims.cb)
+    # 선저 Cm — 리포트 기록값 (없거나 None이면 구세계 0.78 호환)
+    hull_cm = report.get("hull_cm") or 0.78
+    mesh = generate_hull_mesh(dims, cm=hull_cm)
+    n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
     u_target = report["goal"]["target_speed_ms"]
     speeds = np.linspace(0.05, RESISTANCE_SPEED_FACTOR * u_target,
                          RESISTANCE_SAMPLES)

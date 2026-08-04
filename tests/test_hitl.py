@@ -56,3 +56,17 @@ def test_draw_recording_and_rating(tmp_path):
     record_comparison("a", "b", p, reason="이번엔 비김", draw=True)
     r2 = compute_ratings(p)
     assert r2["a"] > r2["b"]           # 승 1회 우위는 유지
+
+
+def test_record_appends_consistent_columns(tmp_path):
+    """CSV 열 일관성 회귀 시험 (2026-08-05 실측: 구형 4열 파일에 5열
+    행을 덧붙여 추천 모듈 파서가 사망) — 신규 파일은 항상 5열."""
+    import csv
+
+    from src.hitl.elo import record_comparison
+
+    p = tmp_path / "cmp.csv"
+    record_comparison("a", "b", p, reason="r1")
+    record_comparison("c", "d", p, reason="r2", draw=True)
+    rows = list(csv.reader(p.open()))
+    assert all(len(r) == 5 for r in rows), rows
