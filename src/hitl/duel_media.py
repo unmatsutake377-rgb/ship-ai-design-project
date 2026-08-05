@@ -268,6 +268,46 @@ def turning_gif(vessels: list, dims_list: list[MainDimensions],
     return Path(path)
 
 
+def section_overlay_png(meshes, dims_list, labels, path: str | Path) -> Path:
+    """중앙 단면 겹침 비교 — 선저·풍만도 차이의 정면 뷰 (2026-08-05
+    오너 발굴 후 정식 편입: 회전 3D는 밑부분 차이를 숨기는 매체)."""
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(7, 6), dpi=100)
+    colors = ["#0f766e", "#dc2626"]
+    for mesh, dims, label, color in zip(meshes, dims_list, labels, colors):
+        zs = np.linspace(0.001, dims.depth - 0.001, 50)
+        ys = []
+        for z in zs:
+            sec = mesh.section(plane_origin=[0, 0, z],
+                               plane_normal=[0, 0, 1])
+            if sec is None or not len(sec.entities):
+                ys.append(0.0)
+                continue
+            pts = np.vstack([e.discrete(sec.vertices)
+                             for e in sec.entities])
+            near = pts[np.abs(pts[:, 0]) < 0.05 * dims.loa]
+            ys.append(float(np.abs(near[:, 1]).max()) if len(near)
+                      else float(np.abs(pts[:, 1]).max()))
+        ys = np.array(ys)
+        ax.plot(np.concatenate([-ys[::-1], ys]),
+                np.concatenate([zs[::-1], zs]),
+                color=color, lw=2.2, label=label, alpha=0.9)
+        ax.axhline(dims.draft_design, color=color, ls=":", lw=0.8,
+                   alpha=0.5)
+    ax.set_aspect("equal")
+    ax.legend(fontsize=10)
+    ax.grid(alpha=0.3)
+    ax.set_title("중앙 단면 겹침 — 배 몸통을 정면에서 자른 모양",
+                 fontsize=11)
+    ax.set_xlabel("반폭 [m]")
+    ax.set_ylabel("높이 [m] (점선 = 각자의 수선)")
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return Path(path)
+
+
 def make_duel_media(row_a, row_b, labels: tuple[str, str],
                     goal: GoalSpec, out_dir: str | Path,
                     course_l: float = 6.0) -> tuple[Path, Path]:
@@ -295,4 +335,6 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
     g3 = turning_gif(vessels, dims_list, list(labels),
                      out / "duel_turning.gif",
                      u_entry=goal.target_speed_ms)
-    return g1, g2, g3
+    g4 = section_overlay_png(meshes, dims_list, list(labels),
+                             out / "duel_section.png")
+    return g1, g2, g3, g4
