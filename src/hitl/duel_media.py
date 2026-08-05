@@ -86,8 +86,14 @@ def _mesh_for(row, purpose: str = "survey"
 
 
 def rotating_gif(meshes: list[trimesh.Trimesh], labels: list[str],
-                 path: str | Path, n_frames: int = 36, fps: int = 12) -> Path:
-    """두 선체 3D 회전 비교 GIF — 동일 축척·동일 시점."""
+                 path: str | Path, n_frames: int = 48, fps: int = 12) -> Path:
+    """두 선체 3D 회전 비교 GIF — 동일 축척·동일 시점.
+
+    선저 가시화 2종 (2026-08-05 오너: "U자 굴곡이 안 보인다"):
+    ① 스테이션 라인 — 조선 도면처럼 단면 곡선을 몸통 위에 그려
+      굴곡을 선으로 노출 (단색 곡면은 곡률 정보를 숨김)
+    ② 시점 순환 — 위(+25°)→옆(0°)→아래(−30°)를 오가며 회전:
+      배 밑을 올려다보는 구간이 생김."""
     lim = max(float(np.abs(m.bounds).max()) for m in meshes)
     fig = plt.figure(figsize=(10, 5), dpi=90)
     axes = [fig.add_subplot(1, 2, i + 1, projection="3d")
@@ -97,7 +103,35 @@ def rotating_gif(meshes: list[trimesh.Trimesh], labels: list[str],
         v, f = m.vertices, m.faces
         surfs.append(ax.plot_trisurf(v[:, 0], v[:, 1], f, v[:, 2],
                                      color="#0f766e", edgecolor="none",
-                                     alpha=0.95, shade=True))
+                                     alpha=0.55, shade=True))
+        # 스테이션 라인: 길이 방향 9곳의 단면 곡선
+        (xmin, _, _), (xmax, _, _) = m.bounds
+        for xf in np.linspace(0.08, 0.92, 9):
+            x = xmin + xf * (xmax - xmin)
+            sec = m.section(plane_origin=[float(x), 0, 0],
+                            plane_normal=[1, 0, 0])
+            if sec is None or not len(sec.entities):
+                continue
+            for e in sec.entities:
+                pts = np.asarray(e.discrete(sec.vertices))
+                ax.plot(pts[:, 0], pts[:, 1], pts[:, 2],
+                        color="#134e4a", lw=1.1, alpha=0.95)
+        # 용골선 (중심선 바닥 윤곽) — 세로 굴곡
+        xs_k = np.linspace(xmin + 0.02, xmax - 0.02, 40)
+        keel = []
+        for x in xs_k:
+            sec = m.section(plane_origin=[float(x), 0, 0],
+                            plane_normal=[1, 0, 0])
+            if sec is None or not len(sec.entities):
+                continue
+            pts = np.vstack([e.discrete(sec.vertices)
+                             for e in sec.entities])
+            j = np.argmin(pts[:, 2])
+            keel.append((x, pts[j, 1], pts[j, 2]))
+        if keel:
+            kk = np.array(keel)
+            ax.plot(kk[:, 0], kk[:, 1], kk[:, 2], color="#dc2626",
+                    lw=1.6, alpha=0.9)
         ax.set_title(label, fontsize=11)
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
@@ -105,8 +139,10 @@ def rotating_gif(meshes: list[trimesh.Trimesh], labels: list[str],
         ax.set_axis_off()
 
     def update(k):
+        # 시점 순환: 사인파로 +25° ~ −30° (아래에서 보는 구간 포함)
+        elev = -2.5 + 27.5 * np.cos(2 * np.pi * k / n_frames)
         for ax in axes:
-            ax.view_init(elev=18, azim=k * 360 / n_frames)
+            ax.view_init(elev=float(elev), azim=k * 360 / n_frames)
         return surfs
 
     anim = animation.FuncAnimation(fig, update, frames=n_frames)
