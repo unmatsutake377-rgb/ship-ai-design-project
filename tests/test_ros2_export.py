@@ -12,7 +12,7 @@ from src.sim_adapters.ros2_export import export_hydro_yaml, export_urdf
 def report_and_dir(tmp_path_factory):
     out = tmp_path_factory.mktemp("design")
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
-    report = run_pipeline(goal, out)
+    report = run_pipeline(goal, out, hull_source="formula")
     return report, out
 
 
@@ -27,10 +27,14 @@ def test_urdf_valid_xml_and_values(report_and_dir, tmp_path):
     mass = float(inertial.find("mass").get("value"))
     assert mass == pytest.approx(report["weights"]["total_mass"], rel=1e-6)
     izz = float(inertial.find("inertia").get("izz"))
-    # izz는 성분 모델 하계와 iyy(0.25L 회전반경) 중 큰 값 (삼각 부등식 보장)
-    assert izz >= report["weights"]["izz"] - 1e-9
     iyy_val = float(inertial.find("inertia").get("iyy"))
     ixx_val = float(inertial.find("inertia").get("ixx"))
+    # izz 하계 = 성분 모델과 iyy 중 큰 값 — 단 물리 상한
+    # izz ≤ 0.999(ixx+iyy)가 우선 (Ship-D 실척은 성분 모델이 상한을
+    # 넘을 수 있어 절단 발동 — 절단됐다면 상한 근처가 정답)
+    lower = min(max(report["weights"]["izz"], iyy_val),
+                0.999 * (ixx_val + iyy_val))
+    assert izz >= lower - 1e-9
     assert ixx_val + izz >= iyy_val  # Gazebo가 거부하던 위반 재발 방지
     ixx = float(inertial.find("inertia").get("ixx"))
     iyy = float(inertial.find("inertia").get("iyy"))

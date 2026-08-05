@@ -116,8 +116,18 @@ def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  loa: float | None = None,
                  payload_volume: float | None = None,
-                 cm_override: float | None = None) -> dict:
-    """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산)."""
+                 cm_override: float | None = None,
+                 hull_source: str = "auto",
+                 shipd_pool: int = 60) -> dict:
+    """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산).
+
+    hull_source (스펙 shipgen 4단계 — 수식 생성기 강등):
+    - "auto": 배수량 체계 + Ship-D 로컬 있으면 실척 선별(shipd),
+      아니면 수식 폴백 — 기본값
+    - "shipd": 실척 선별 강제 (불가하면 수식 폴백 + 리포트 표기)
+    - "formula": 기존 수식 생성기 (검증 표준기)
+    반배수량·활주는 항상 수식 (Savitsky 계열 유지 — 오너 철학).
+    shipd_pool: 선별 표본 크기 (클수록 좋은 배·느림, 60 ≈ 1분)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -131,6 +141,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     # 메쉬 Michell·기저항 (C-1) / 활주 = 데드라이즈 프리즘 + Savitsky (C-2)
     criteria = None  # 기본 밴드 — 활주 분기에서만 교체
     hull_cm = None
+    hull_lcb = None
+    picked = None    # Ship-D 실척 채택 (배수량 분기에서만)
+    hull_note = None  # 선형 출처 판정 사유 (rel = 수식 대비 비율)
     spiral_kw: dict = {}
     if regime is Regime.SEMI_DISPLACEMENT:
         # 반배수량(트랜섬 계열)은 자체 TRANSOM_CM — patrol 프리셋 0.80은
@@ -175,12 +188,69 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                 total=st.resistance_n,
                 effective_power=st.resistance_n * s_)
     else:
-        hull_cm = cm_for_purpose(goal.purpose, cm_override)
-        hull_lcb = lcb_for_purpose(goal.purpose)   # 비대칭 기본 승격 (08-05)
-        mesh = generate_hull_mesh(dims, cm=hull_cm, lcb_frac=hull_lcb)
-        spiral_kw = {"cm": hull_cm, "lcb_frac": hull_lcb}
-        n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
-        resistance_fn = None
+        if hull_source in ("auto", "shipd"):
+            from data import shipd_loader
+            if shipd_loader.available():
+                from src.ai.shipgen_select import select_hull
+                picked = select_hull(goal, dims.loa, pool_size=shipd_pool)
+        if picked is not None and hull_source == "auto":
+            # 품질 방어 (08-05 실측): 무작위 표본 선별은 z-상대평가라
+            # "안정 좋고 저항 폭탄"이 이길 수 있음 (실측 6배 저항 사례).
+            # 수식 기준선을 먼저 재고 — 용도 가중 종합에서 실척이
+            # 이길 때만 교체. 지면 수식 유지 + 사유 표기 (정직 강등).
+            # "shipd" 명시는 사용자 강제 — 방어 없이 그대로 채택.
+            from src.ai.shipgen_select import condition_weights
+            _cm0 = cm_for_purpose(goal.purpose, cm_override)
+            _lcb0 = lcb_for_purpose(goal.purpose)
+            _mesh0 = generate_hull_mesh(dims, cm=_cm0, lcb_frac=_lcb0)
+            try:
+                _w0, _h0, _r0, _, _, _ = design_spiral(
+                    _mesh0, dims, goal, criteria=criteria,
+                    cm=_cm0, lcb_frac=_lcb0)
+                _wt = condition_weights(goal.purpose, goal.target_speed_ms,
+                                        dims.loa)
+                # 안정은 양쪽 다 게이트(GM 밴드) 통과 — 성능 비교는
+                # 저항·중량만 (게이트 몫을 점수로 이중 계상 않는 교훈)
+                wr, wm = _wt["resistance"], _wt["mass"]
+                rel = (wr * picked.row["resistance_n"] / max(_r0.total, 1e-9)
+                       + wm * picked.row["total_mass_kg"]
+                       / max(_w0.total_mass, 1e-9)) / (wr + wm)
+                # rel < 1 = 실척 종합 우세 (비율 가중합, 수식 = 1 기준)
+                if rel >= 1.0:
+                    hull_note = (f"실척 후보(hull {picked.hull_id}) 종합 "
+                                 f"{rel:.2f}배 열세 — 수식 유지")
+                    picked = None
+                else:
+                    hull_note = f"실척이 수식 대비 종합 {rel:.2f}배 (우세)"
+            except Exception:
+                pass   # 수식 기준선 실패 = 비교 불가 — 실척 그대로
+        if picked is not None:
+            # Ship-D 실척 경로 (스펙 4단계): 조건부 선별 승자를 채택.
+            # 치수·평가 전부 실척 메쉬 기반 (screen_shipd 관례),
+            # 저항 = 메쉬 Michell (비대칭 실선형이라 해석 지수 없음).
+            from src.physics.resistance import total_resistance_mesh
+            from src.screen_shipd import DEPTH_OVER_DRAFT_FALLBACK
+
+            from data.shipd_loader import scaled_mesh
+            mesh = scaled_mesh(picked.vector, dims.loa)
+            beam = float(mesh.extents[1])
+            depth = float(mesh.bounds[1][2])
+            dims = dataclasses.replace(
+                dims, beam=beam, depth=depth,
+                draft_design=depth / DEPTH_OVER_DRAFT_FALLBACK)
+            n_exp = m_exp = None
+            hull_cm = None
+            hull_lcb = None
+
+            def resistance_fn(m_, d_, s_, w_=None):
+                return total_resistance_mesh(m_, dims.loa, d_, s_)
+        else:
+            hull_cm = cm_for_purpose(goal.purpose, cm_override)
+            hull_lcb = lcb_for_purpose(goal.purpose)  # 비대칭 기본 (08-05)
+            mesh = generate_hull_mesh(dims, cm=hull_cm, lcb_frac=hull_lcb)
+            spiral_kw = {"cm": hull_cm, "lcb_frac": hull_lcb}
+            n_exp, m_exp = solve_exponents(dims.cb, hull_cm)
+            resistance_fn = None
 
     weights, hydro, resist, motors, batt_kg, iteration = \
         design_spiral(mesh, dims, goal, resistance_fn=resistance_fn,
@@ -231,17 +301,37 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     # 물리적으로 들어가나" — 정역학과 책임 분리해 이 층에서 합성
     from src.physics.maxbox import largest_box, payload_volume_for
 
-    box = largest_box(mesh, depth=dims.depth)
     pv, pv_basis = payload_volume_for(goal.payload_kg, goal.purpose,
                                       payload_volume)
-    space_ok = pv <= box.volume
-    maxbox_report = {
-        "length": box.length, "width": box.width, "height": box.height,
-        "volume": box.volume, "payload_volume": pv,
-        "volume_basis": pv_basis,
-        "margin_ratio": (box.volume - pv) / pv if pv > 0 else float("inf"),
-        "note": "내부 구조물(모터·배터리 자리) 미차감 — 비보수적 (스펙 §5)",
-    }
+    if picked is not None:
+        # Ship-D 메쉬는 비수밀(갑판 열림) — largest_box의 contains
+        # 검사가 0을 뱉는 그 버그 (다구획 스펙 §7). 선별 게이트가
+        # 이미 검증한 다구획 절단법 결과를 정본으로 사용.
+        # 단 payload_volume 직접 입력은 선별 게이트가 모름 — 여기서
+        # 다구획 총부피와 재대조 (50 m³ 괴물 거부 시험이 파수꾼).
+        space_ok = bool(picked.row["space_ok"]) \
+            and pv <= picked.row["hold_volume_m3"]
+        maxbox_report = {
+            "volume": picked.row["hold_volume_m3"],
+            "n_bays": picked.row["n_bays"], "payload_volume": pv,
+            "volume_basis": pv_basis,
+            "margin_ratio": (picked.row["hold_volume_m3"] - pv) / pv
+            if pv > 0 else float("inf"),
+            "note": "다구획 절단법 (Ship-D 비수밀 메쉬 — 단일 상자 "
+                    "contains 부적용, 다구획 스펙 §7)",
+        }
+    else:
+        box = largest_box(mesh, depth=dims.depth)
+        space_ok = pv <= box.volume
+        maxbox_report = {
+            "length": box.length, "width": box.width, "height": box.height,
+            "volume": box.volume, "payload_volume": pv,
+            "volume_basis": pv_basis,
+            "margin_ratio": (box.volume - pv) / pv if pv > 0
+            else float("inf"),
+            "note": "내부 구조물(모터·배터리 자리) 미차감 — 비보수적 "
+                    "(스펙 §5)",
+        }
 
     # 조종성 지표 (민첩성 — 오너 발견의 정량화, 2026-08-02):
     # "충분하면 됨" 결정 → 문턱 표기만 (경고 수준, 필터 아님)
@@ -267,20 +357,25 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "dimensions": dataclasses.asdict(dims),
         "dimension_basis": band_report(goal.purpose),
         "regime": regime.name,
+        # 수식 생성기 강등 (스펙 shipgen 4단계): shipd = 실척 선별 채택.
+        # ⚠ shipd 메쉬 STL은 라이선스 확정 전 커밋·공개 금지 (로컬 열람만)
+        "hull_source": "shipd" if picked is not None else "formula",
+        "hull_id": picked.hull_id if picked is not None else -1,
+        "hull_note": hull_note,
         "hull_cm": hull_cm,
         # 정적 트림 (2026-08-05 asym-hull): LCB≠0 세계의 실물리 균형.
         # 소각 선형 θ=(LCG−LCB)/GML (다구획 3단계 도구 재사용).
         # 구식 trim_warning(LCB=0 가정)은 weights에 잔존 — 이 값이 정본.
         "static_trim_deg": static_trim_deg,
         "payload_lcg_frac": payload_lcg_frac,
-        "hull_lcb_frac": hull_lcb if regime is Regime.DISPLACEMENT else 0.0,
+        "hull_lcb_frac": hull_lcb,   # 수식 배수량만 값 — shipd·타 체계 None
         "froude_length": froude_length(goal.target_speed_ms, dims.loa),
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
         "max_displacement_speed": vmax,
         "max_semi_speed": max_semi_speed(dims.loa),
         "hull_family": {"SEMI_DISPLACEMENT": "transom",
-                        "PLANING": "planing_deadrise"}.get(regime.name,
-                                                           "wigley"),
+                        "PLANING": "planing_deadrise"}.get(
+            regime.name, "shipd" if picked is not None else "wigley"),
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),
@@ -314,6 +409,13 @@ def _print_summary(report: dict) -> None:
           f"{report['goal']['payload_kg']} kg")
     print(f"체계 (Fn)       : {report['regime']} "
           f"(Fn={report['froude_length']:.3f})")
+    if report.get("hull_source") == "shipd":
+        print(f"선형 출처       : Ship-D 실척 선별 (hull "
+              f"{report['hull_id']}) ⚠ 형상 파일 공개 금지 (라이선스)")
+    else:
+        print("선형 출처       : 수식 생성기 (표준기)")
+    if report.get("hull_note"):
+        print(f"출처 판정       : {report['hull_note']}")
     print(f"치수 L×B×D (T)  : {d['loa']:.2f} × {d['beam']:.2f} × "
           f"{d['depth']:.2f} ({d['draft_design']:.2f}) m, Cb={d['cb']:.2f}")
     basis = report["dimension_basis"]
@@ -357,8 +459,12 @@ def _print_summary(report: dict) -> None:
               f"{'이내 ✓' if ag['within_imo'] else '초과 ⚠'} — 외삽 주의)"
               f" · 반응 {ag['nomoto_t']:.1f}s")
     mb = report["maxbox"]
-    print(f"탑재 공간 (#27) : MaxBox {mb['length']:.2f}×{mb['width']:.2f}×"
-          f"{mb['height']:.2f} m = {mb['volume']:.3f} m³ vs 짐 "
+    if "n_bays" in mb:   # Ship-D 실척 = 다구획 절단법 (상자 치수 없음)
+        shape = f"다구획 {mb['n_bays']}칸"
+    else:
+        shape = (f"MaxBox {mb['length']:.2f}×{mb['width']:.2f}×"
+                 f"{mb['height']:.2f} m")
+    print(f"탑재 공간 (#27) : {shape} = {mb['volume']:.3f} m³ vs 짐 "
           f"{mb['payload_volume']:.3f} m³ ({mb['volume_basis']}) → "
           f"{'들어감' if report['checks_space'] else '공간 부족 ✗'}"
           f" (여유 {mb['margin_ratio']:+.0%})")
@@ -389,6 +495,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--payload-volume", type=float, default=None,
                         help="짐 부피 [m³] 직접 입력 (생략 시 용도별 "
                              "화물 밀도 개략 가정으로 무게→부피 환산)")
+    parser.add_argument("--hull-source", default="auto",
+                        choices=["auto", "shipd", "formula"],
+                        help="선형 출처 (배수량 체계 한정): auto = Ship-D "
+                             "있으면 실척 선별, formula = 수식 표준기")
+    parser.add_argument("--shipd-pool", type=int, default=60,
+                        help="Ship-D 선별 표본 수 (클수록 좋은 배·느림)")
     args = parser.parse_args(argv)
 
     # 3입력 UX (#25 오너 제안): 속도 생략 시 용도가 결정
@@ -413,7 +525,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         report = run_pipeline(goal, args.out, loa=args.loa,
                               cm_override=args.cm,
-                              payload_volume=args.payload_volume)
+                              payload_volume=args.payload_volume,
+                              hull_source=args.hull_source,
+                              shipd_pool=args.shipd_pool)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:
