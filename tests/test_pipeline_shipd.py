@@ -61,3 +61,15 @@ def test_pipeline_planing_keeps_formula(tmp_path):
     report = run_pipeline(goal, tmp_path, loa=2.8, hull_source="shipd")
     assert report["regime"] == "PLANING"
     assert report["hull_source"] == "formula"
+
+
+def test_pipeline_semi_patrol_cm_wired(tmp_path):
+    """patrol 반배수량: 트랜섬 선저 Cm 배선 (0.80 요청 — Cb에 따라
+    정직 클램프될 수 있음, hull_cm이 기본 0.65보다 풍만해야 함)."""
+    from src.pipeline import run_pipeline
+
+    goal = GoalSpec(target_speed_ms=2.6, payload_kg=60.0, purpose="patrol",
+                    endurance_h=2.0)
+    report = run_pipeline(goal, tmp_path)
+    assert report["regime"] == "SEMI_DISPLACEMENT"
+    assert report["hull_cm"] is not None and report["hull_cm"] > 0.66

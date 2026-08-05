@@ -146,9 +146,19 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     hull_note = None  # 선형 출처 판정 사유 (rel = 수식 대비 비율)
     spiral_kw: dict = {}
     if regime is Regime.SEMI_DISPLACEMENT:
-        # 반배수량(트랜섬 계열)은 자체 TRANSOM_CM — patrol 프리셋 0.80은
-        # 후속 (트랜섬 solver cm 배선 대기), 기록만
-        mesh = generate_transom_hull_mesh(dims)
+        # 트랜섬 선저 배선 (백로그 이행): patrol 실측 Cm 0.80 —
+        # 단 기하 도달 범위로 정직 클램프 (날씬 Cb + 풍만 요청 충돌 시
+        # 무조건 배선하면 CbOutOfRange 전멸 — hull_note에 표기)
+        from src.ai.hull_generator import (
+            clamp_transom_cm,
+            transom_cm_for_purpose,
+        )
+        _cm_req = transom_cm_for_purpose(goal.purpose, cm_override)
+        hull_cm, _clamped = clamp_transom_cm(dims.cb, _cm_req)
+        if _clamped:
+            hull_note = (f"요청 Cm {_cm_req:.2f}는 이 Cb({dims.cb:.2f})의 "
+                         f"트랜섬 기하 밖 — {hull_cm:.2f}로 정직 클램프")
+        mesh = generate_transom_hull_mesh(dims, cm=hull_cm)
         n_exp = m_exp = None
 
         def resistance_fn(m_, d_, s_, w_=None):

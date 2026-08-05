@@ -286,12 +286,45 @@ def _transom_half_breadth(x: float, z: float, dims: MainDimensions,
 
 
 def generate_transom_hull_mesh(dims: MainDimensions, n_stations: int = 61,
-                               n_below: int = 15, n_above: int = 9
-                               ) -> trimesh.Trimesh:
-    """트랜섬 선미 watertight 메쉬 (반배수량용)."""
-    n, m = solve_transom_exponents(dims.cb)
+                               n_below: int = 15, n_above: int = 9,
+                               cm: float | None = None) -> trimesh.Trimesh:
+    """트랜섬 선미 watertight 메쉬 (반배수량용).
+
+    cm: 중앙단면계수 (선저 풍만도) — None이면 TRANSOM_CM(0.65).
+    patrol 실측 0.80 배선용 (Ship-D 캘리브레이션, 스펙 hull-bottoms)."""
+    n, m = solve_transom_exponents(dims.cb, cm if cm is not None
+                                   else TRANSOM_CM)
     return _build_mesh(lambda x, z: _transom_half_breadth(x, z, dims, n, m),
                        dims, n_stations, n_below, n_above, cap_stern=True)
+
+
+def transom_cm_for_purpose(purpose: str,
+                           override: float | None = None) -> float:
+    """트랜섬 계열 용도별 Cm — patrol만 실측 근거 (0.80), 그 외 기본.
+
+    survey 0.85 등 배수량 값은 round bilge 근거라 트랜섬 V형에
+    이식하지 않음 (근거 없는 외삽 금지)."""
+    if override is not None:
+        return float(override)
+    if purpose == "patrol":
+        return CM_BY_PURPOSE["patrol"]
+    return TRANSOM_CM
+
+
+def clamp_transom_cm(cb: float, cm_requested: float
+                     ) -> tuple[float, bool]:
+    """요청 Cm을 트랜섬 기하가 도달 가능한 범위로 정직 클램프.
+
+    기하 제약: Cp = Cb/Cm ∈ [lo, hi] (평행부·테이퍼 고정이라 프리즘
+    범위가 좁음) — 날씬한 배(patrol Cb 0.45)에 풍만 바닥(0.80)을
+    요청하면 Cp가 하한 밑으로 떨어져 불가. 도달 가능한 최대 풍만도
+    (Cm = Cb/Cp_lo)까지로 낮추고 클램프 여부를 반환 (리포트 표기용).
+    Cb 자체가 범위 밖이면 solve_transom_exponents가 기존대로 거절."""
+    lo, hi = _transom_cp_bounds()
+    cm_max = cb / lo    # Cp 하한 → 이 Cb에서 가능한 최대 Cm
+    cm_min = cb / hi
+    clamped = not (cm_min <= cm_requested <= cm_max)
+    return min(max(cm_requested, cm_min), cm_max), clamped
 
 
 # ---------- 활주 계열 (Phase C-2) ----------
