@@ -344,6 +344,73 @@ def section_overlay_png(meshes, dims_list, labels, path: str | Path) -> Path:
     return Path(path)
 
 
+def lines_plan_png(meshes, dims_list, labels, path: str | Path) -> Path:
+    """조선 표준 선도(lines plan)풍 2단 도면 (2026-08-05 오너 제시
+    이미지 재현): 각 배마다 ① 정면 겹침도(body plan — 오른쪽 반 =
+    선수 스테이션들, 왼쪽 반 = 선미 스테이션들; 비대칭이 좌우 차이로
+    보임) ② 스테이션 사선 배열 (원근 늘어놓기)."""
+    import numpy as np
+
+    n = len(meshes)
+    fig, axes = plt.subplots(n, 2, figsize=(12, 4.5 * n), dpi=110)
+    if n == 1:
+        axes = [axes]
+    for row, (mesh, dims, label) in enumerate(
+            zip(meshes, dims_list, labels)):
+        (xmin, _, _), (xmax, _, _) = mesh.bounds
+        L = xmax - xmin
+        x_mid = 0.5 * (xmin + xmax)
+        ax_body, ax_persp = axes[row]
+
+        def station(x):
+            sec = mesh.section(plane_origin=[float(x), 0, 0],
+                               plane_normal=[1, 0, 0])
+            if sec is None or not len(sec.entities):
+                return None
+            pts = np.vstack([e.discrete(sec.vertices)
+                             for e in sec.entities])
+            keep = pts[pts[:, 1] >= -1e-6]      # 우현 반쪽
+            return keep[np.argsort(keep[:, 2])]
+
+        # ① body plan: 선수 스테이션 → 오른쪽, 선미 → 왼쪽 (관례)
+        n_st = 6
+        for i, xf in enumerate(np.linspace(0.05, 0.48, n_st)):
+            for side, sign, cmap in ((x_mid + xf * L, +1, "#0f766e"),
+                                     (x_mid - xf * L, -1, "#dc2626")):
+                st = station(side)
+                if st is None:
+                    continue
+                shade = 0.35 + 0.6 * i / n_st
+                ax_body.plot(sign * st[:, 1], st[:, 2], lw=1.3,
+                             color=cmap, alpha=shade)
+        ax_body.axvline(0, color="#94a3b8", lw=0.8, ls=":")
+        ax_body.axhline(dims.draft_design, color="#2563eb", lw=0.8,
+                        ls="--", alpha=0.6)
+        ax_body.set_title(f"{label} — 정면 겹침도 (우=선수 스테이션, "
+                          f"좌=선미)", fontsize=10)
+        ax_body.set_aspect("equal")
+        ax_body.grid(alpha=0.2)
+
+        # ② 사선 배열 (오너 제시 이미지풍): 스테이션들을 옆으로 늘어놓기
+        for i, xf in enumerate(np.linspace(0.03, 0.97, 14)):
+            st = station(xmin + xf * L)
+            if st is None:
+                continue
+            off = xf * L * 0.9
+            ys = np.concatenate([-st[::-1, 1], st[:, 1]])
+            zs = np.concatenate([st[::-1, 2], st[:, 2]])
+            ax_persp.plot(off + ys, zs + off * 0.12, lw=1.1,
+                          color="#134e4a", alpha=0.9)
+        ax_persp.set_title(f"{label} — 스테이션 사선 배열 "
+                           f"(선수 ← → 선미)", fontsize=10)
+        ax_persp.set_aspect("equal")
+        ax_persp.axis("off")
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+    return Path(path)
+
+
 def make_duel_media(row_a, row_b, labels: tuple[str, str],
                     goal: GoalSpec, out_dir: str | Path,
                     course_l: float = 6.0) -> tuple[Path, Path]:
@@ -373,4 +440,6 @@ def make_duel_media(row_a, row_b, labels: tuple[str, str],
                      u_entry=goal.target_speed_ms)
     g4 = section_overlay_png(meshes, dims_list, list(labels),
                              out / "duel_section.png")
-    return g1, g2, g3, g4
+    g5 = lines_plan_png(meshes, dims_list, list(labels),
+                        out / "duel_lines.png")
+    return g1, g2, g3, g4, g5
