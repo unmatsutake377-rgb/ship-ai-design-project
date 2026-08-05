@@ -17,6 +17,23 @@ import numpy as np
 from src.core.types import GoalSpec
 
 
+def condition_weights(purpose: str, speed_ms: float, loa: float) -> dict:
+    """조건 연동 선별 가중 — 용도 프리셋(recommend.py 계보)에
+    속도 한 겹: 저항 가중을 (Fn/0.30)² 배 증폭 (1 미만은 1로 클램프).
+
+    물리 근거: 조파 저항 비중이 Fn과 함께 커짐 (Michell, prismatic
+    hump Fn≈0.30) — 빠른 조건일수록 저항이 선별을 지배해 "속도가
+    파라미터를 끌고 간다"(오너 철학)가 가중에서 구현된다. 합 1 정규화."""
+    from src.ai.recommend import preset_weights
+
+    w = preset_weights(purpose)
+    fn = speed_ms / np.sqrt(9.81 * loa)
+    w_res = w["resistance"] * max(1.0, (fn / 0.30) ** 2)
+    tot = w_res + w["mass"] + w["stability"]
+    return {"resistance": w_res / tot, "mass": w["mass"] / tot,
+            "stability": w["stability"] / tot}
+
+
 @dataclass(frozen=True)
 class ShipGenPick:
     hull_id: int
@@ -48,8 +65,7 @@ def select_hull(goal: GoalSpec, target_loa: float,
                 and r.get("trim_ok")):
             passed.append(r)
     if not passed:
-        return ShipGenPick(-1, np.array([]), {}, len(idx), 0) \
-            if False else None
+        return None
 
     res = np.array([r["resistance_n"] for r in passed])
     mas = np.array([r["total_mass_kg"] for r in passed])
@@ -58,8 +74,9 @@ def select_hull(goal: GoalSpec, target_loa: float,
     def z(a):
         return (a - a.mean()) / (a.std() + 1e-9)
 
-    # survey 가중 계보 (recommend.py): 안정 우선, 저항·중량 균형
-    score = -0.28 * z(res) - 0.27 * z(mas) + 0.45 * z(stb)
+    w = condition_weights(goal.purpose, goal.target_speed_ms, target_loa)
+    score = (-w["resistance"] * z(res) - w["mass"] * z(mas)
+             + w["stability"] * z(stb))
     best = passed[int(np.argmax(score))]
     return ShipGenPick(hull_id=int(best["hull_id"]),
                        vector=vectors[int(best["hull_id"])],
