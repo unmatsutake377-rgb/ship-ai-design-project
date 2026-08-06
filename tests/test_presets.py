@@ -31,4 +31,4 @@ def test_workboat_still_falls_back():
 def test_missing_csv_degrades_to_fallback(tmp_path):
     p = purpose_presets(tmp_path / "none.csv")
     assert all(v.speed_source == "fallback" for v in p.values())
-    assert set(p) == {"survey", "patrol", "workboat"}
+    assert set(p) == {"survey", "patrol", "workboat", "cargo"}

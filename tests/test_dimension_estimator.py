@@ -42,9 +42,15 @@ def test_ratios_respected():
 
 
 def test_all_band_cbs_within_generator_envelope():
-    """치수 추정기가 내는 Cb는 반드시 생성기 도달범위 안 (spec §2.1)."""
-    for band in PURPOSE_BANDS.values():
-        assert CB_ENVELOPE[0] <= band.cb <= CB_ENVELOPE[1]
+    """치수 추정기가 내는 Cb는 반드시 생성기 도달범위 안 (spec §2.1).
+
+    2단계 갱신 (2026-08-06): 도달성은 용도별 Cm 기준 — cargo Cb 0.75는
+    기본 Cm 0.78로는 범위 밖이지만 Cm 0.98(상선 단면)로 생성돼 유효."""
+    from src.ai.hull_generator import CP_RANGE, cm_for_purpose
+
+    for purpose, band in PURPOSE_BANDS.items():
+        cp = band.cb / cm_for_purpose(purpose)
+        assert CP_RANGE[0] <= cp <= CP_RANGE[1], purpose
 
 
 def test_unknown_purpose_raises():
