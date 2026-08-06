@@ -70,3 +70,16 @@ name,maker,category,hull_type,loa_m,beam_m,draft_m,weight_light_kg,weight_full_k
 3. 논문 수치는 사용할 모듈의 스펙 문서에 출처와 함께 기록
 4. 세션에서 "실선 N척 추가했어" 하면 치수 추정기 재캘리브레이션
    여부를 판단해줌
+
+---
+
+## 프롬프트 C — 대형 엔진 (전 크기 개방 3단계)
+
+나는 선박 설계 도구의 엔진 카탈로그를 만들고 있어. 실제 판매되는
+**선박용 디젤 엔진**(중속·저속, 500 kW ~ 30 MW 대역)의 공식 스펙을
+찾아줘: 모델명, 제조사(MAN Energy Solutions·Wärtsilä·HiMSEN 등),
+MCR 출력[kW], 건중량[t], SFOC[g/kWh], 정격 회전수[rpm]. 규칙은
+프롬프트 A와 동일 — 제조사 공식 페이지/프로젝트 가이드 PDF만 A급,
+못 찾은 값은 빈칸, 항목마다 출처 URL. CSV 헤더:
+`name,maker,mcr_kw,mass_t,sfoc_g_per_kwh,rpm,source_url,source_grade,notes`
+5종, 출력 대역이 겹치지 않게 분산해서.
