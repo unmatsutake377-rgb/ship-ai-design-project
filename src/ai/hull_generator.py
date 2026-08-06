@@ -23,14 +23,16 @@ DEFAULT_CM = 0.78          # 구세계 기본 (하위 호환 — 구 리포트 �
 # Ship-D 300척 바닥 폭비율 실측 역산 (f10 25/50/75분위 = Cm
 # 0.73/0.85/0.92) + 문헌 (배수량·반배수량 표준 선저 = round bilge,
 # 반배수량은 fine 쪽). 활주는 Cm 개념 밖 (V바닥 별도 계열).
-CM_BY_PURPOSE = {"survey": 0.85, "workboat": 0.92, "patrol": 0.80}
+CM_BY_PURPOSE = {"survey": 0.85, "workboat": 0.92, "patrol": 0.80,
+                 "cargo": 0.98}   # 상선 중앙단면 통상 (2단계, B급)
 
 
 # 용도별 LCB 오프셋 (2026-08-05, 스펙 asym-hull): (LCB−중앙)/L,
 # +가 선수쪽. 근거 = 저속(Fn 0.2~0.25)은 LCB 전방 유리 (문헌 최대
 # +3%L) + Ship-D 30,000척 실측 중앙 전방 2.3%L. patrol·활주는 자체
 # 비대칭 계열이라 미적용.
-LCB_BY_PURPOSE = {"survey": 0.02, "workboat": 0.025}
+LCB_BY_PURPOSE = {"survey": 0.02, "workboat": 0.025,
+                  "cargo": 0.02}   # 저속 풍만 계보 (Fn<0.2)
 
 
 def lcb_for_purpose(purpose: str) -> float:

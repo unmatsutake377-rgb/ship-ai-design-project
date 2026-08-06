@@ -21,7 +21,8 @@ RHO_SEAWATER = 1025.0
 DEPTH_OVER_DRAFT = 1.6  # 형심/설계흘수 (건현 여유)
 
 # Cb는 제조사 비공개라 데이터에서 못 뽑음 — 카테고리별 상수 가정 (spec §2.2)
-CB_BY_CATEGORY = {"survey": 0.50, "patrol": 0.45, "workboat": 0.55}
+CB_BY_CATEGORY = {"survey": 0.50, "patrol": 0.45, "workboat": 0.55,
+                  "cargo": 0.75}
 
 
 class UnknownPurposeError(ValueError):
@@ -40,6 +41,11 @@ _FALLBACK_BANDS: dict[str, DataBand] = {
                        loa_range=(1.0, 8.0), n_samples=0, source="fallback"),
     "workboat": DataBand(lb=2.8, bt=3.5, cb=0.55, payload_fraction=0.45,
                          loa_range=(1.0, 8.0), n_samples=0, source="fallback"),
+    # cargo(화물선) — 전 크기 개방 2단계 (스펙 2026-08-06): 상선 문헌
+    # 통계 (Watson 계보, B급). payload_fraction = DWT/Δ 화물선 통상.
+    "cargo": DataBand(lb=6.1, bt=2.8, cb=0.75, payload_fraction=0.70,
+                      loa_range=(60.0, 350.0), n_samples=0,
+                      source="fallback"),
 }
 
 

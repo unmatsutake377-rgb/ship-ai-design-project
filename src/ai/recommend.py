@@ -26,6 +26,8 @@ _PRESETS = {
     "survey": {"resistance": 0.3, "mass": 0.2, "stability": 0.5},
     "patrol": {"resistance": 0.5, "mass": 0.2, "stability": 0.3},
     "workboat": {"resistance": 0.2, "mass": 0.5, "stability": 0.3},
+    # cargo: 연비(저항)·경하 경량(=재화 능력) 동급, 안정은 게이트 몫
+    "cargo": {"resistance": 0.4, "mass": 0.4, "stability": 0.2},
 }
 
 # 대결 후보 이름 → 목적 (ELO 이력의 이름 규약)

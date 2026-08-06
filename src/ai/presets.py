@@ -19,7 +19,8 @@ PARTICULARS_CSV = Path(__file__).parent.parent.parent / "data" \
     / "small_craft_particulars.csv"
 
 # 데이터 없는 용도의 개략 기본 순항속도 [m/s]
-_FALLBACK_SPEED = {"survey": 1.5, "patrol": 2.5, "workboat": 1.5}
+_FALLBACK_SPEED = {"survey": 1.5, "patrol": 2.5, "workboat": 1.5,
+                   "cargo": 7.0}   # ~13.6 kn 화물선 순항 통상 (B급)
 
 
 @dataclass(frozen=True)

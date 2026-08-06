@@ -24,7 +24,8 @@ import trimesh
 # 단일 밀도로 짐 전체를 대표하는 것 자체가 거친 모형임이 실측으로
 # 확인됨 → 프리셋은 "중간 대표값"이고, 부피가 중요한 사용자는
 # --payload-volume 직접 입력이 정도(正道) (CLI 도움말에도 안내).
-PAYLOAD_DENSITY = {"survey": 600.0, "patrol": 600.0, "workboat": 400.0}
+PAYLOAD_DENSITY = {"survey": 600.0, "patrol": 600.0, "workboat": 400.0,
+                   "cargo": 500.0}  # 일반 화물 개략 (2단계, C급)
 
 
 @dataclass(frozen=True)
