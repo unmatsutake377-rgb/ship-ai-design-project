@@ -163,3 +163,43 @@ def total_resistance_holtrop(h: HoltropInput, speed: float,
             "ct": total / q if q > 0 else float("nan"),
             "cf": cf, "reynolds": re,
             "froude": speed / math.sqrt(G * h.lwl)}
+
+
+def holtrop_input_from_mesh(mesh, loa: float, draft: float,
+                            ) -> HoltropInput:
+    """메쉬 실측 → Holtrop 입력 (계수 전부 절단·적분으로 추출).
+
+    Michell A/B 실험(worklog 08-06)의 추출 코드를 정식 승격.
+    구상선수·트랜섬은 0 (수식/Ship-D 배수량 계열 공통 — 보수적)."""
+    import numpy as np
+
+    (xmin, ymin, zmin), (xmax, ymax, zmax) = mesh.bounds
+    sub = mesh.slice_plane([0, 0, draft], [0, 0, -1], cap=True)
+    vol = float(abs(sub.volume))
+    sw = float(sub.area_faces[~np.isclose(
+        sub.triangles_center[:, 2], draft, atol=1e-3)].sum())
+    # 중앙 단면 (Cm)
+    xm = 0.5 * (xmin + xmax)
+    sec = mesh.section(plane_origin=[xm, 0, 0], plane_normal=[1, 0, 0])
+    pts = np.vstack([e.discrete(sec.vertices) for e in sec.entities])
+    below = pts[pts[:, 2] <= draft]
+    zs = np.linspace(0.001 * draft, 0.999 * draft, 60)
+    pos = below[below[:, 1] > 0]
+    order = np.argsort(pos[:, 2])
+    halves = np.interp(zs, pos[order][:, 2], pos[order][:, 1])
+    am = 2.0 * float(np.trapezoid(halves, zs))
+    bwl = 2.0 * float(halves.max())
+    # 수선면 (Cwp)
+    wl = mesh.section(plane_origin=[0, 0, draft], plane_normal=[0, 0, 1])
+    wpts = np.vstack([e.discrete(wl.vertices) for e in wl.entities])
+    xs = np.linspace(xmin + 1e-3 * loa, xmax - 1e-3 * loa, 80)
+    wp = wpts[wpts[:, 1] > 0]
+    worder = np.argsort(wp[:, 0])
+    wh = np.interp(xs, wp[worder][:, 0], wp[worder][:, 1])
+    awp = 2.0 * float(np.trapezoid(wh, xs))
+    # LCB (Holtrop 규약 +선수쪽) — 우리 수식 메쉬는 +x 선수
+    lcb = (float(sub.center_mass[0]) - xm) / loa
+    return HoltropInput(
+        lwl=loa, beam=bwl, draft=draft, volume=vol, wetted_surface=sw,
+        cb=vol / (loa * bwl * draft), cm=am / (bwl * draft),
+        cwp=awp / (loa * bwl), lcb_frac=lcb)

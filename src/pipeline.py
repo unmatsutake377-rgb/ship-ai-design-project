@@ -134,6 +134,30 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     dims = estimate_dimensions(goal, loa=loa)
     volume_est = dims.cb * dims.loa * dims.beam * dims.draft_design
     regime = classify(goal.target_speed_ms, dims.loa, volume_est)
+
+    # 대형 상선 경로 (전 크기 개방 4단계): Watson 유효 대역(60 m+)은
+    # 크기 유효 법칙 나선 (Holtrop·Watson·Wageningen B·IMO·ICLL).
+    # 크기 스위치가 아니라 법칙 유효성 분기 (스펙 §1).
+    from src.pipeline_large import LARGE_LOA_MIN
+    if regime is Regime.DISPLACEMENT and dims.loa >= LARGE_LOA_MIN:
+        from src.pipeline_large import design_spiral_large
+        mesh = generate_hull_mesh(dims, cm=cm_for_purpose(goal.purpose,
+                                                          cm_override),
+                                  lcb_frac=lcb_for_purpose(goal.purpose))
+        large = design_spiral_large(mesh, dims, goal)
+        mesh.export(out / "hull.stl")
+        report = {"goal": dataclasses.asdict(goal),
+                  "dimensions": dataclasses.asdict(dims),
+                  "regime": regime.name, "hull_source": "formula",
+                  "hull_family": "large_cargo",
+                  "froude_length": froude_length(goal.target_speed_ms,
+                                                 dims.loa),
+                  "large": large, "passed": large["passed"],
+                  "mesh_file": "hull.stl"}
+        with open(out / "report.json", "w") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        _print_summary_large(report)
+        return report
     vmax = max_displacement_speed(dims.loa)
     require_supported(regime)  # C-2로 전 체계 개방 — 향후 신규 체계 게이트
 
@@ -407,6 +431,40 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
     return report
 
 
+def _print_summary_large(report: dict) -> None:
+    d, lg = report["dimensions"], report["large"]
+    ls, pr, en = lg["lightship_t"], lg["propeller"], lg["engine"]
+    print("=" * 56)
+    print("대형 상선 설계 리포트 (전 크기 개방)")
+    print("=" * 56)
+    print(f"용도/속도/적재  : {report['goal']['purpose']} / "
+          f"{report['goal']['target_speed_ms']} m/s / "
+          f"{report['goal']['payload_kg'] / 1000:.0f} t")
+    print(f"치수 L×B×D (T)  : {d['loa']:.1f} × {d['beam']:.1f} × "
+          f"{d['depth']:.1f} ({lg['draft']:.2f}) m, Cb={d['cb']:.2f} "
+          f"(Fn={report['froude_length']:.3f})")
+    print(f"중량 [t]        : 경하 {ls['total']:.0f} (구조 "
+          f"{ls['structure']:.0f}/의장 {ls['outfit']:.0f}/기관 "
+          f"{ls['machinery']:.0f}) + 연료 {lg['fuel_t']:.0f} + 짐 "
+          f"{lg['payload_t']:.0f} = {lg['total_t']:.0f}")
+    print(f"저항 (Holtrop)  : {lg['resistance']['total'] / 1e3:.0f} kN "
+          f"(점성 {lg['resistance']['rv'] / 1e3:.0f} + 조파 "
+          f"{lg['resistance']['rw'] / 1e3:.0f})")
+    print(f"프로펠러 (B{pr['z']}) : D {pr['diameter']:.2f} m · P/D "
+          f"{pr['pitch_ratio']:.2f} · {pr['rpm']:.0f} rpm · η0 "
+          f"{pr['eta0']:.3f} · ηD {pr['eta_d']:.3f} · 캐비테이션 "
+          f"{'OK' if pr['cavitation_ok'] else '⚠'}")
+    print(f"엔진            : {en['name']} {en['mcr_kw']:.0f} kW "
+          f"(부하율 {en['load_fraction']:.0%}, 등급 {en['source_grade']}"
+          f"{'⚠미검증' if en['source_grade'] == 'C' else ''})")
+    print(f"GM / 건현       : {lg['gm']:.2f} m (밴드 "
+          f"{lg['gm_band'][0]:.3f}~{lg['gm_band'][1]:.2f}·GM/B) / "
+          f"{lg['freeboard_m']:.2f} m (ICLL 최소 "
+          f"{lg['freeboard_min_icll']:.2f}) → "
+          f"{'합격' if report['passed'] else '불합격'}")
+    print(f"주의            : {lg['kg_note']}")
+
+
 def _print_summary(report: dict) -> None:
     d = report["dimensions"]
     h = report["hydrostatics"]
@@ -543,7 +601,8 @@ def main(argv: list[str] | None = None) -> int:
             SpiralNotConvergedError, PlaningEquilibriumError) as e:
         print(f"[중단] {e}", file=sys.stderr)
         return 3
-    _print_summary(report)
+    if "large" not in report:      # 대형 리포트는 run_pipeline이 출력
+        _print_summary(report)
     return 0 if report["passed"] else 2
 
 
