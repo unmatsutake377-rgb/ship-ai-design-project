@@ -67,3 +67,24 @@ def select_engine(pb_kw: float, margin: float = ENGINE_MARGIN,
                       source_grade=r["source_grade"],
                       pb_required_kw=pb_kw,
                       load_fraction=need / float(r["mcr_kw"]))
+
+
+def design_propulsion(resistance_n: float, speed_ms: float,
+                      draft: float, z: int = 4, ear: float = 0.55):
+    """프로펠러 실설계 + 엔진 선정 통합 (3단계 2차 완성).
+
+    ηD를 개략(0.60)이 아니라 B-시리즈 설계점에서 실산출 —
+    직경은 흘수 제한 D = 0.70·T (상선 관례). 캐비테이션이 EAR 부족을
+    말하면 Keller 최소값으로 한 번 재설계 (정직 반복).
+    반환: (PropellerDesign, EnginePick)."""
+    from src.physics.propeller import design_propeller
+
+    d_max = 0.70 * draft
+    prop = design_propeller(resistance_n, speed_ms, diameter_max=d_max,
+                            z=z, ear=ear)
+    if not prop.cavitation_ok:
+        prop = design_propeller(resistance_n, speed_ms,
+                                diameter_max=d_max, z=z,
+                                ear=min(1.05, prop.ear_min_keller))
+    engine = select_engine(prop.brake_power_kw)
+    return prop, engine

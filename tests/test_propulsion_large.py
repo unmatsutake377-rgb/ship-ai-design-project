@@ -26,3 +26,15 @@ def test_select_engine_smallest_sufficient():
 def test_select_engine_honest_refusal():
     with pytest.raises(NoSuitableEngineError, match="채울 엔진"):
         select_engine(40_000.0)
+
+
+def test_design_propulsion_end_to_end():
+    """통합: 100 m 화물선급 (R 200 kN·7 m/s·T 6 m) — 프로펠러 실효율
+    ηD로 제동동력 → 엔진 선정, 캐비테이션 충족."""
+    from src.physics.propulsion_large import design_propulsion
+
+    prop, engine = design_propulsion(200_000.0, 7.0, draft=6.0)
+    assert prop.cavitation_ok
+    assert prop.diameter == pytest.approx(4.2)     # 0.70·T
+    assert 0.55 < prop.eta_d < 0.85
+    assert engine.mcr_kw >= prop.brake_power_kw * 1.15
