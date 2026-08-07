@@ -77,11 +77,13 @@ def test_patrol_band_now_data_driven():
     assert band.n_samples >= 3
 
 
-def test_workboat_band_falls_back_with_label():
-    """데이터 부족 카테고리는 fallback — 반드시 표시가 남아야 함.
-    (workboat은 단동 표본 부족 — 수집 진행형 #17)"""
+def test_workboat_band_promoted_to_data():
+    """workboat 데이터 승격 (2026-08-07 수집 — C-Worker 7로 n=3):
+    fallback 딱지가 떨어졌음을 박제. cargo는 아직 fallback (수집 대기)."""
     band = PURPOSE_BANDS["workboat"]
-    assert band.source == "fallback"
+    assert band.source == "data"
+    assert band.n_samples >= 3
+    assert PURPOSE_BANDS["cargo"].source == "fallback"
 
 
 def test_user_loa_override():
