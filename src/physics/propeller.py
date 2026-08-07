@@ -18,8 +18,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 RHO_SEAWATER = 1025.0
-WAKE_FRACTION = 0.30       # 화물선 통상 개략 (C급)
-THRUST_DEDUCTION = 0.20    # 동상
+
+
+def wake_fraction(cb: float) -> float:
+    """Taylor 반류 근사 (단축선): w = 0.5·Cb − 0.05 (고전 회귀, B급).
+
+    Cb 연동 — 풍만할수록 선미 반류 큼. Holtrop 정밀 부속식은
+    공식 전문 확보 시 승급 (기억 하드코딩 금지 관례)."""
+    return max(0.10, min(0.45, 0.5 * cb - 0.05))
+
+
+def thrust_deduction(cb: float) -> float:
+    """추력감소 근사: t ≈ 0.6·w (단축선 통상비, B급)."""
+    return 0.6 * wake_fraction(cb)
 ETA_RELATIVE_ROT = 1.00    # ηR 개략 (0.98~1.02 대역)
 P_ATM_PA = 101_325.0
 P_VAPOR_PA = 2_340.0       # 15°C 해수 증기압 근방
@@ -86,13 +97,17 @@ class PropellerDesignError(ValueError):
 def design_propeller(resistance_n: float, speed_ms: float,
                      diameter_max: float, z: int = 4, ear: float = 0.55,
                      shaft_depth: float | None = None,
-                     rho: float = RHO_SEAWATER) -> PropellerDesign:
+                     rho: float = RHO_SEAWATER,
+                     cb: float = 0.70) -> PropellerDesign:
     """소요 추력을 채우는 (P/D, rpm) 중 개수 효율 최대점 선택.
 
     diameter_max: 흘수 제한 직경 (통상 D ≈ 0.65~0.75T) — 큰 직경이
-    저회전·고효율이라 상한을 그대로 채택 (실무 관례)."""
-    t_req = resistance_n / (1.0 - THRUST_DEDUCTION)
-    va = speed_ms * (1.0 - WAKE_FRACTION)
+    저회전·고효율이라 상한을 그대로 채택 (실무 관례).
+    cb: 반류·추력감소 Taylor 근사 입력 (배 풍만도 연동, B급)."""
+    w = wake_fraction(cb)
+    td = thrust_deduction(cb)
+    t_req = resistance_n / (1.0 - td)
+    va = speed_ms * (1.0 - w)
     d = diameter_max
     if shaft_depth is None:
         shaft_depth = d          # 축 몰수깊이 개략 (≈D)
@@ -116,7 +131,7 @@ def design_propeller(resistance_n: float, speed_ms: float,
             f"소요 추력 {t_req / 1e3:.0f} kN을 D {d:.1f} m·B{z}-{ear:.2f} "
             "대역(P/D 0.5~1.4)에서 달성 불가 — 직경·날개수 재검토 필요.")
     eta0, j, pd_i, kt, kq, n, thrust = best
-    eta_h = (1.0 - THRUST_DEDUCTION) / (1.0 - WAKE_FRACTION)
+    eta_h = (1.0 - td) / (1.0 - w)
     eta_d = eta0 * eta_h * ETA_RELATIVE_ROT
     pb_kw = resistance_n * speed_ms / eta_d / 1000.0
     ear_min = keller_min_ear(t_req, d, z, shaft_depth, rho)

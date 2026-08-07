@@ -70,7 +70,8 @@ def select_engine(pb_kw: float, margin: float = ENGINE_MARGIN,
 
 
 def design_propulsion(resistance_n: float, speed_ms: float,
-                      draft: float, z: int = 4, ear: float = 0.55):
+                      draft: float, z: int = 4, ear: float = 0.55,
+                      cb: float = 0.70):
     """프로펠러 실설계 + 엔진 선정 통합 (3단계 2차 완성).
 
     ηD를 개략(0.60)이 아니라 B-시리즈 설계점에서 실산출 —
@@ -81,10 +82,10 @@ def design_propulsion(resistance_n: float, speed_ms: float,
 
     d_max = 0.70 * draft
     prop = design_propeller(resistance_n, speed_ms, diameter_max=d_max,
-                            z=z, ear=ear)
+                            z=z, ear=ear, cb=cb)
     if not prop.cavitation_ok:
         prop = design_propeller(resistance_n, speed_ms,
                                 diameter_max=d_max, z=z,
-                                ear=min(1.05, prop.ear_min_keller))
+                                ear=min(1.05, prop.ear_min_keller), cb=cb)
     engine = select_engine(prop.brake_power_kw)
     return prop, engine

@@ -15,7 +15,11 @@ from src.core.types import GoalSpec, MainDimensions
 
 MAX_ITER = 30
 TOL = 1e-3
-KG_OVER_DEPTH = 0.55       # 대형 KG 개략 (C급)
+# 성분별 VCG/D (상선 통상 대역, B~C급 — Watson 계보 개략):
+# 구조 0.60(선각+갑판), 의장 0.85(갑판 위 장비), 기관 0.45(기관실),
+# 연료 0.15(이중저·저부 탱크), 짐 0.55(창구 중앙)
+VCG_OVER_D = {"structure": 0.60, "outfit": 0.85, "machinery": 0.45,
+              "fuel": 0.15, "payload": 0.55}
 LARGE_LOA_MIN = 60.0       # Watson 유효 대역 하한
 
 
@@ -50,12 +54,19 @@ def design_spiral_large(mesh, dims: MainDimensions, goal: GoalSpec):
                               ship_type="cargo")
         total_t = ls.total_t + fuel_t + payload_t
         crit = StabilityCriteria(gm_over_beam=large_gm_band(dims.beam))
-        hydro = evaluate(mesh, total_t * 1000.0, KG_OVER_DEPTH * dims.depth,
+        kg = (dims.depth / max(total_t, 1e-9)) * (
+            ls.structure_t * VCG_OVER_D["structure"]
+            + ls.outfit_t * VCG_OVER_D["outfit"]
+            + ls.machinery_t * VCG_OVER_D["machinery"]
+            + fuel_t * VCG_OVER_D["fuel"]
+            + payload_t * VCG_OVER_D["payload"])
+        hydro = evaluate(mesh, total_t * 1000.0, kg,
                          beam=dims.beam, depth=dims.depth, criteria=crit)
         h_in = holtrop_input_from_mesh(mesh, dims.loa, hydro.draft)
         resist = total_resistance_holtrop(h_in, goal.target_speed_ms)
         prop, engine = design_propulsion(resist["total"],
-                                         goal.target_speed_ms, hydro.draft)
+                                         goal.target_speed_ms, hydro.draft,
+                                         cb=dims.cb)
         mcr = engine.mcr_kw
         fuel_t = (prop.brake_power_kw * engine.sfoc_g_per_kwh
                   * goal.endurance_h) / 1e6 * 1.10   # 예비 10%
@@ -90,5 +101,7 @@ def design_spiral_large(mesh, dims: MainDimensions, goal: GoalSpec):
                    "source_grade": engine.source_grade,
                    "brake_power_kw": prop.brake_power_kw},
         "passed": bool(hydro.passed and freeboard >= fb_min),
-        "kg_note": f"KG = {KG_OVER_DEPTH}·D 개략 (C급 — 분포모델 후속)",
+        "kg_m": float(kg),
+        "kg_note": "KG = 성분별 VCG/D 합성 (구조 0.60·의장 0.85·"
+                   "기관 0.45·연료 0.15·짐 0.55 — B~C급 통상 대역)",
     }

@@ -54,7 +54,8 @@ def test_design_cargo_100m_sane():
     assert 0.45 < d.eta0 < 0.80
     assert 0.55 < d.eta_d < 0.85          # ηH=(1-0.2)/(1-0.3)=1.143 증폭
     assert 30 < d.rpm < 250
-    assert d.thrust_n >= 200_000.0 / 0.8 * 0.999
+    from src.physics.propeller import thrust_deduction
+    assert d.thrust_n >= 200_000.0 / (1 - thrust_deduction(0.70)) * 0.999
     assert d.brake_power_kw == pytest.approx(
         200_000 * 7.0 / d.eta_d / 1000, rel=1e-9)
     assert d.ear_min_keller > 0

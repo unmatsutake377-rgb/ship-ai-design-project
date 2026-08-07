@@ -18,9 +18,9 @@ def test_brake_power_hand_calc():
 def test_select_engine_smallest_sufficient():
     """여유 15% 포함 최소 MCR 선택 + 부하율 보고."""
     pick = select_engine(3000.0)
-    assert pick.mcr_kw == 4000.0
-    assert pick.load_fraction == pytest.approx(3000 * 1.15 / 4000)
-    assert pick.source_grade == "C"   # 승급 전 정직 표기
+    assert pick.mcr_kw == 4640.0      # Wärtsilä 8L32 (실물 승급 08-07)
+    assert pick.load_fraction == pytest.approx(3000 * 1.15 / 4640)
+    assert pick.source_grade == "A"   # 제조사 프로덕트 가이드 계보
 
 
 def test_select_engine_honest_refusal():

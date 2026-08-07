@@ -1,5 +1,5 @@
 name,maker,mcr_kw,mass_t,sfoc_g_per_kwh,source_url,source_grade,cross_verified,collected_date,notes
-중속디젤-1MW급,대표형,1000,12,190,,C,False,2026-08-06,개략 대역값 — 실물 모델명·스펙 웹 검증 후 교체 (승급 전 설계 리포트에 C급 표기)
-중속디젤-4MW급,대표형,4000,45,180,,C,False,2026-08-06,개략 대역값 — 동상
-저속디젤-10MW급,대표형,10000,180,170,,C,False,2026-08-06,개략 대역값 — 동상
-저속디젤-25MW급,대표형,25000,440,165,,C,False,2026-08-06,개략 대역값 — 동상
+6L20,Wärtsilä,1200,11.0,186,https://www.wartsila.com/marine/products/engines-and-generating-sets/wartsila-20,A,True,2026-08-07,제조사 프로덕트 가이드 계보 (200 kW/실린더×6 · 1000 rpm · SFOC ISO)
+8L32,Wärtsilä,4640,44.0,178.8,https://www.wartsila.com/marine/products/engines-and-generating-sets/wartsila-32,A,True,2026-08-07,제조사 프로덕트 가이드 계보 (580 kW/실린더×8 · 750 rpm)
+저속디젤-10MW급,대표형,10000,180,170,,C,False,2026-08-06,개략 대역값 — MAN S50ME-C 계열(~9070 kW) 이름 확인·중량 미확보로 승급 대기
+저속디젤-25MW급,대표형,25000,440,165,,C,False,2026-08-06,개략 대역값 — 실물 모델 웹 검증 후 교체
