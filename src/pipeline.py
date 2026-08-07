@@ -48,6 +48,7 @@ from src.physics.propulsion import (
     select_motors,
 )
 from src.physics.resistance import total_resistance, total_resistance_semi
+from src.physics.seakeeping.criteria import roll_natural_period
 from src.physics.savitsky import PlaningEquilibriumError
 
 MAX_SPIRAL_ITER = 12   # 설계 나선 최대 반복
@@ -188,6 +189,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                   "froude_length": froude_length(goal.target_speed_ms,
                                                  dims.loa),
                   "large": large, "passed": large["passed"],
+                  "roll_period_s": roll_natural_period(
+                      dims.beam, large["draft"], dims.loa, large["gm"]),
                   "mesh_file": "hull.stl"}
         with open(out / "report.json", "w") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
