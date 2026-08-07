@@ -42,7 +42,9 @@ CB_MAX = 0.90            # 부양 검사용 방형계수 상한 (상자에 가�
 # Fn > 3은 소형정 물리 상한 밖이라 오기 의심. 체계 구분은 통계 단계에서
 # cruise Fn으로 별도 필터링한다.
 FN_MAX_PLAUSIBLE = 3.0
-LB_RANGE = (1.5, 10.0)   # L/B 상식 범위
+LB_RANGE = (1.5, 10.0)        # L/B 상식 범위 (단동)
+LB_RANGE_CAT = (1.2, 10.0)    # 쌍동은 광폭이 실물 (BlueBoat 1.29,
+                              # Otter 1.85 — 08-07 수집 실측 캘리브레이션)
 BT_RANGE = (1.5, 12.0)   # B/T 상식 범위
 
 
@@ -98,7 +100,11 @@ def physics_flags(row: dict) -> list[str]:
     if all(_present(v) for v in (loa, beam)):
         lb = loa / beam
         if not LB_RANGE[0] <= lb <= LB_RANGE[1]:
-            flags.append(f"비율 이상: L/B={lb:.1f} (상식 범위 {LB_RANGE})")
+            lb_rng = (LB_RANGE_CAT if str(row.get("hull_type", ""))
+                      == "catamaran" else LB_RANGE)
+            if not lb_rng[0] <= lb <= lb_rng[1]:
+                flags.append(
+                    f"비율 이상: L/B={lb:.1f} (상식 범위 {lb_rng})")
     if all(_present(v) for v in (beam, draft)):
         bt = beam / draft
         if not BT_RANGE[0] <= bt <= BT_RANGE[1]:

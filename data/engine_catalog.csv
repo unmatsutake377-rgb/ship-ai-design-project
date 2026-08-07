@@ -2,4 +2,5 @@ name,maker,mcr_kw,mass_t,sfoc_g_per_kwh,source_url,source_grade,cross_verified,c
 6L20,Wärtsilä,1200,11.0,186,https://www.wartsila.com/marine/products/engines-and-generating-sets/wartsila-20,A,True,2026-08-07,제조사 프로덕트 가이드 계보 (200 kW/실린더×6 · 1000 rpm · SFOC ISO)
 8L32,Wärtsilä,4640,44.0,178.8,https://www.wartsila.com/marine/products/engines-and-generating-sets/wartsila-32,A,True,2026-08-07,제조사 프로덕트 가이드 계보 (580 kW/실린더×8 · 750 rpm)
 6S50ME-C9.7,MAN Energy Solutions,10680,278,167.5,https://man-es.com/applications/projectguides/2stroke/content/printed/S50ME-C9_7-GI.pdf,A,True,2026-08-07,L1 1780 kW/cyl×6 @117rpm · SFOC Tier II 100% · 건조질량 = 프로젝트 가이드 §5.07 DMT 278t (GI·EcoEGR 구성)
-저속디젤-25MW급,대표형,25000,440,165,,C,False,2026-08-06,개략 대역값 — 실물 모델 웹 검증 후 교체
+16V31,Wärtsilä,10400,110.5,165,https://www.wartsila.com/marine/products/engines-and-generating-sets/wartsila-31,A,True,2026-08-07,출력=16기통×650kW/cyl 페이지 도출 (A) · SFOC 165=기네스 인증 계보 (A) · 중량 110.5t=오너 수집 (제품 가이드 내 — 페이지 미확인 B 표기)
+저속디젤-25MW급,대표형,25000,440,165,,C,False,2026-08-06,개략 대역값 — WinGD X72-B(28880kW·A급 브로슈어) 후보 확보했으나 중량·SFOC 미공개로 등록 보류 (오너 수집 08-07)
