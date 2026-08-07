@@ -74,8 +74,23 @@ def _mesh_for(row, purpose: str = "survey"
     (손수 조립하면 depth 규약이 어긋나 평형 흘수 > 설계 흘수 →
     Wigley 수식이 NaN — 실측 후 dims_from_vector로 통일)
     cm 배선 (2026-08-05 오너 발굴): 물리·파레토는 신세계 Cm인데
-    회전 GIF 메쉬만 구세계 기본으로 생성되던 누락 — 용도 프리셋 적용."""
+    회전 GIF 메쉬만 구세계 기본으로 생성되던 누락 — 용도 프리셋 적용.
+
+    Ship-D 전선 (vector_json 열, 2026-08-07): 45파라미터 실척 메쉬
+    재생성 — 형태의 정본이 벡터이므로 그대로 그린다 (물리=그림 동일
+    소스). ⚠ 산출 매체는 라이선스 확정 전 공개 금지 (로컬 열람만)."""
     from src.ai.hull_generator import cm_for_purpose
+
+    if hasattr(row, "vector_json") and isinstance(row.vector_json, str):
+        import json as _json
+
+        from data.shipd_loader import scaled_mesh
+        mesh = scaled_mesh(np.array(_json.loads(row.vector_json)), 3.0)
+        beam = float(mesh.extents[1])
+        depth = float(mesh.bounds[1][2])
+        dims = MainDimensions(loa=3.0, beam=beam, depth=depth,
+                              draft_design=float(row.draft), cb=0.5)
+        return dims, mesh
     from src.optimize import dims_from_vector
 
     dims = dims_from_vector(np.array([row.loa, row.lb, row.bt, row.cb]))
