@@ -66,7 +66,7 @@ def design_spiral_large(mesh, dims: MainDimensions, goal: GoalSpec):
         resist = total_resistance_holtrop(h_in, goal.target_speed_ms)
         prop, engine = design_propulsion(resist["total"],
                                          goal.target_speed_ms, hydro.draft,
-                                         cb=dims.cb)
+                                         cb=dims.cb, holtrop_input=h_in)
         mcr = engine.mcr_kw
         fuel_t = (prop.brake_power_kw * engine.sfoc_g_per_kwh
                   * goal.endurance_h) / 1e6 * 1.10   # 예비 10%

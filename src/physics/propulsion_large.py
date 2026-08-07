@@ -71,7 +71,7 @@ def select_engine(pb_kw: float, margin: float = ENGINE_MARGIN,
 
 def design_propulsion(resistance_n: float, speed_ms: float,
                       draft: float, z: int = 4, ear: float = 0.55,
-                      cb: float = 0.70):
+                      cb: float = 0.70, holtrop_input=None):
     """프로펠러 실설계 + 엔진 선정 통합 (3단계 2차 완성).
 
     ηD를 개략(0.60)이 아니라 B-시리즈 설계점에서 실산출 —
@@ -87,5 +87,19 @@ def design_propulsion(resistance_n: float, speed_ms: float,
         prop = design_propeller(resistance_n, speed_ms,
                                 diameter_max=d_max, z=z,
                                 ear=min(1.05, prop.ear_min_keller), cb=cb)
+    if holtrop_input is not None:
+        # 2단 설계: 직경 확정 후 Holtrop 정밀 w·t·ηR로 재설계 (승급)
+        from src.physics.holtrop import form_factor
+        from src.physics.propeller import holtrop_wake_thrust
+        h = holtrop_input
+        w, t, eta_r = holtrop_wake_thrust(
+            lpp=h.lwl, beam=h.beam, draft=h.draft, d_prop=prop.diameter,
+            cp=h.cb / h.cm, lcb_pct=100.0 * h.lcb_frac,
+            wetted_surface=h.wetted_surface, k1=form_factor(h),
+            speed=speed_ms)
+        prop = design_propeller(resistance_n, speed_ms,
+                                diameter_max=d_max, z=z, ear=prop.ear,
+                                cb=cb, w_override=w, t_override=t,
+                                eta_r=eta_r)
     engine = select_engine(prop.brake_power_kw)
     return prop, engine

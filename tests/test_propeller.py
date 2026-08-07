@@ -69,3 +69,18 @@ def test_design_honest_refusal():
 
 def test_keller_ear_scales_with_thrust():
     assert keller_min_ear(2e6, 5.0, 4, 5.0) > keller_min_ear(5e5, 5.0, 4, 5.0)
+
+
+def test_holtrop_wake_thrust_kcs_magnitudes():
+    """Holtrop 정밀 w·t·ηR: KCS 실선 자릿수 (문헌 w 0.2~0.35,
+    t 0.14~0.21, ηR 0.98~1.03) + 성질 t < w."""
+    from src.physics.propeller import holtrop_wake_thrust
+
+    w, t, er = holtrop_wake_thrust(lpp=230.0, beam=32.2, draft=10.8,
+                                   d_prop=7.9, cp=0.66, lcb_pct=-1.48,
+                                   wetted_surface=9530.0, k1=1.165,
+                                   speed=12.35)
+    assert 0.20 < w < 0.35
+    assert 0.14 < t < 0.21
+    assert 0.98 < er < 1.03
+    assert t < w
