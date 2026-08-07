@@ -145,10 +145,45 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                                                           cm_override),
                                   lcb_frac=lcb_for_purpose(goal.purpose))
         large = design_spiral_large(mesh, dims, goal)
+        src_used, hull_id, hull_note = "formula", -1, None
+        if hull_source in ("auto", "shipd"):
+            # Ship-D 대형 접속 (08-07): 실척 후보를 대형 나선으로 실측
+            # 평가 → 수식과 A/B (cargo 가중: 저항·경하 반반 — 안정은
+            # 게이트 몫). 이긴 쪽 채택 + 사유 병기 (품질 방어 관례).
+            from data import shipd_loader
+            if shipd_loader.available():
+                from src.pipeline_large import (
+                    dims_from_shipd_mesh,
+                    select_hull_large,
+                )
+                pick = select_hull_large(goal, dims.loa,
+                                         pool_size=shipd_pool // 2)
+                if pick is not None:
+                    vec, hid, r_sd = pick
+                    rel = (0.5 * r_sd["resistance"]["total"]
+                           / max(large["resistance"]["total"], 1e-9)
+                           + 0.5 * r_sd["lightship_t"]["total"]
+                           / max(large["lightship_t"]["total"], 1e-9))
+                    if rel < 1.0 or hull_source == "shipd":
+                        mesh = shipd_loader.scaled_mesh(vec, dims.loa)
+                        from src.physics.holtrop import (
+                            holtrop_input_from_mesh,
+                        )
+                        h0 = holtrop_input_from_mesh(
+                            mesh, dims.loa,
+                            float(mesh.bounds[1][2]) / 1.6)
+                        dims = dims_from_shipd_mesh(mesh, dims.loa, h0.cb)
+                        large = r_sd
+                        src_used, hull_id = "shipd", hid
+                        hull_note = f"실척이 수식 대비 종합 {rel:.2f}배"
+                    else:
+                        hull_note = (f"실척 후보(hull {hid}) 종합 "
+                                     f"{rel:.2f}배 열세 — 수식 유지")
         mesh.export(out / "hull.stl")
         report = {"goal": dataclasses.asdict(goal),
                   "dimensions": dataclasses.asdict(dims),
-                  "regime": regime.name, "hull_source": "formula",
+                  "regime": regime.name, "hull_source": src_used,
+                  "hull_id": hull_id, "hull_note": hull_note,
                   "hull_family": "large_cargo",
                   "froude_length": froude_length(goal.target_speed_ms,
                                                  dims.loa),
@@ -443,6 +478,11 @@ def _print_summary_large(report: dict) -> None:
     print(f"치수 L×B×D (T)  : {d['loa']:.1f} × {d['beam']:.1f} × "
           f"{d['depth']:.1f} ({lg['draft']:.2f}) m, Cb={d['cb']:.2f} "
           f"(Fn={report['froude_length']:.3f})")
+    if report.get("hull_source") == "shipd":
+        print(f"선형 출처       : Ship-D 실척 (hull {report['hull_id']}) "
+              f"⚠ 형상 공개 금지")
+    if report.get("hull_note"):
+        print(f"출처 판정       : {report['hull_note']}")
     print(f"중량 [t]        : 경하 {ls['total']:.0f} (구조 "
           f"{ls['structure']:.0f}/의장 {ls['outfit']:.0f}/기관 "
           f"{ls['machinery']:.0f}) + 연료 {lg['fuel_t']:.0f} + 짐 "

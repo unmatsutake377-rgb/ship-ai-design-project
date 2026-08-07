@@ -39,3 +39,34 @@ def test_cargo_gm_uses_imo_band(cargo_design):
     """GM 밴드 하한 = IMO 0.15 m 환산 (소형 0.04 아님)."""
     r, dims = cargo_design
     assert r["gm_band"][0] == pytest.approx(0.15 / dims.beam)
+
+
+@pytest.mark.skipif(
+    __import__("data.shipd_loader", fromlist=["available"]).available()
+    is False, reason="Ship-D 로컬 사본 없음")
+def test_select_hull_large_passes_gates():
+    """Ship-D 대형 접속: 100 m 스케일 실척이 대형 나선 게이트 관통."""
+    from src.pipeline_large import select_hull_large
+
+    goal = GoalSpec(target_speed_ms=7.0, payload_kg=5_000_000.0,
+                    purpose="cargo", endurance_h=240.0)
+    pick = select_hull_large(goal, 98.9, pool_size=12, seed=3)
+    assert pick is not None
+    vector, hid, r = pick
+    assert r["passed"]
+    assert vector.shape[0] == 45
+
+
+@pytest.mark.skipif(
+    __import__("data.shipd_loader", fromlist=["available"]).available()
+    is False, reason="Ship-D 로컬 사본 없음")
+def test_pipeline_large_auto_judges(tmp_path):
+    """대형 auto: 실척 vs 수식 A/B 판정 흔적(hull_note) + 관통."""
+    from src.pipeline import run_pipeline
+
+    goal = GoalSpec(target_speed_ms=7.0, payload_kg=5_000_000.0,
+                    purpose="cargo", endurance_h=240.0)
+    report = run_pipeline(goal, tmp_path, shipd_pool=16)
+    assert report["hull_source"] in ("shipd", "formula")
+    assert report["hull_note"] and "배" in report["hull_note"]
+    assert report["passed"]

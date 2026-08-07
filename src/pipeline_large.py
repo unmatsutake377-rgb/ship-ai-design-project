@@ -105,3 +105,51 @@ def design_spiral_large(mesh, dims: MainDimensions, goal: GoalSpec):
         "kg_note": "KG = 성분별 VCG/D 합성 (구조 0.60·의장 0.85·"
                    "기관 0.45·연료 0.15·짐 0.55 — B~C급 통상 대역)",
     }
+
+
+def dims_from_shipd_mesh(mesh, loa: float, cb_measured: float
+                         ) -> MainDimensions:
+    """Ship-D 스케일 메쉬 → 대형 나선용 형식 치수 (실측 기반)."""
+    beam = float(mesh.extents[1])
+    depth = float(mesh.bounds[1][2])
+    return MainDimensions(loa=loa, beam=beam, depth=depth,
+                          draft_design=depth / 1.6, cb=cb_measured)
+
+
+def select_hull_large(goal: GoalSpec, loa: float,
+                      pool_size: int = 24, seed: int = 3):
+    """Ship-D 대형 접속 (백로그 이행): 실척을 대형 나선으로 실측
+    평가 — 게이트 통과자 중 cargo 가중(저항·중량) 최선.
+
+    반환 (vector, hull_id, result dict) 또는 None (통과 0 — 정직).
+    Ship-D 원본이 상선급이라 대형 스케일 전이가 자연 대역."""
+    import numpy as np
+
+    from data import shipd_loader
+    from src.physics.holtrop import holtrop_input_from_mesh
+
+    vectors, _ = shipd_loader.load_vectors()
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(vectors), pool_size, replace=False)
+    passed = []
+    for hid in idx:
+        try:
+            mesh = shipd_loader.scaled_mesh(vectors[hid], loa)
+            depth = float(mesh.bounds[1][2])
+            h0 = holtrop_input_from_mesh(mesh, loa, depth / 1.6)
+            dims = dims_from_shipd_mesh(mesh, loa, h0.cb)
+            r = design_spiral_large(mesh, dims, goal)
+            if r["passed"]:
+                passed.append((int(hid), r))
+        except Exception:
+            continue           # 형상·수렴 실패 = 불합격 (사유 무해)
+    if not passed:
+        return None
+    best = min(passed, key=lambda p: 0.5 * p[1]["resistance"]["total"]
+               + 0.5 * p[1]["lightship_t"]["total"] * 100.0)
+    # 가중: cargo 프리셋 계보 (저항 0.4·중량 0.4 → 동률 0.5/0.5,
+    # 안정은 게이트 몫). 척도 정합: 경하 t를 저항 N과 비교 가능한
+    # 자리수로 (×100 ≈ 추진·건조 비용 프록시 — 개략 C급)
+    hid, r = best
+    from data import shipd_loader as _sl
+    return _sl.load_vectors()[0][hid], hid, r
