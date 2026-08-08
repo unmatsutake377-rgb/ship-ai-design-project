@@ -58,3 +58,44 @@ def test_stiffener_modulus_positive_scaling():
     z2 = stiffener_modulus_cm3(100.0, 0.7, 4.0, 1.0)
     assert z2 == pytest.approx(4.0 * z1, rel=1e-6)
     assert z1 > 0
+
+
+def test_100m_section_modulus_vs_iacs_requirement():
+    """2단계 통합: 규칙 두께로 조립한 단면계수 vs UR S11 요구치
+    Z_req = M_total/σ(175) — 같은 자릿수 (3단계 판정 예고편).
+
+    단위 사고 다발 지점: 1 N/mm² = 1000 kN/m² →
+    Z[m³] = M[kN·m] / (σ[N/mm²]·1000)."""
+    from src.physics.structure.midship import assemble_midship
+    from src.physics.structure.scantlings import (
+        design_pressure_bottom,
+        design_pressure_deck,
+        design_pressure_side,
+        default_spacing_m,
+        min_thickness_mm,
+        plate_thickness_mm,
+    )
+    from src.physics.structure.wave_loads import iacs_wave_bending_knm
+
+    loa, beam, depth, draft, cb = 100.0, 15.0, 8.0, 5.5, 0.75
+    s = default_spacing_m(loa)
+    pb = design_pressure_bottom(loa, beam, draft)
+    ps = design_pressure_side(loa, beam, draft, depth)
+    pd = design_pressure_deck(loa)
+    tb = max(plate_thickness_mm(pb, s, 2.5, 120.0),
+             min_thickness_mm(loa, 1.0, "bottom"))
+    ts = max(plate_thickness_mm(ps, s, 2.5, 120.0),
+             min_thickness_mm(loa, 1.0, "side"))
+    td = max(plate_thickness_mm(pd, s, 2.5, 120.0),
+             min_thickness_mm(loa, 1.0, "deck"))
+    sec = assemble_midship(beam, depth, tb, ts, td,
+                           n_bottom_long=int(beam / s),
+                           n_deck_long=int(beam / s),
+                           long_area_cm2=30.0)
+    hog, _ = iacs_wave_bending_knm(loa, beam, cb)
+    m_total_knm = hog * 1.5          # 정수 성분 개략 가산 (자릿수용)
+    z_req_m3 = m_total_knm / (175.0 * 1000.0)
+    print(f"\n[2단계] Z_deck {sec.z_deck_m3:.3f} / Z_keel "
+          f"{sec.z_keel_m3:.3f} / Z_req {z_req_m3:.3f} m³ "
+          f"(tb {tb:.1f} ts {ts:.1f} td {td:.1f} mm)")
+    assert 0.2 < sec.z_deck_m3 / z_req_m3 < 5.0
