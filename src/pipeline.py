@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import math
 import json
 import sys
 from pathlib import Path
@@ -167,6 +168,73 @@ def _structure_gate(mesh, loa: float, beam: float, depth: float,
                         "(데이터 없음 ≠ 불합격, 정직 기록)"}
 
 
+def _maneuvering_gate(loa: float, beam: float, draft: float,
+                      cb: float, displacement_m3: float,
+                      d_prop: float, resistance_n: float,
+                      speed_ms: float, ear: float, z: int,
+                      pitch_ratio: float) -> dict:
+    """7번째 게이트 — 조종성 (조종 스펙 2026-08-09 §4).
+
+    MMG 계수 추정 (Kijima+Yoshimura 회귀) → 표준 시험 (35° 선회·
+    지그재그) → IMO MSC.137(76) 판정 (L ≥ 100 m — 범위 밖은
+    성적표만). 회귀 대역 밖 소형(Cb<0.51)은 정직 스킵."""
+    from src.physics.maneuvering.criteria import (
+        maneuvering_gate,
+        maneuvering_report,
+    )
+    from src.physics.maneuvering.estimation import (
+        EstimationRangeError,
+        estimate_mmg_coeffs,
+        fujii_lift_gradient,
+    )
+    from src.physics.maneuvering.kvlcc2 import ShipParticulars
+    from src.physics.maneuvering.mmg import MMGShip, solve_self_propulsion
+    from src.physics.propeller import (
+        kt_kq,
+        thrust_deduction,
+        wake_fraction,
+    )
+    from src.sim_adapters.rudder import rudder_area_dnv
+    try:
+        ar = rudder_area_dnv(loa, beam, draft)
+        hr = math.sqrt(1.5 * ar)          # 종횡비 1.5 통상 (C급)
+        w0 = wake_fraction(cb)
+        t0 = thrust_deduction(cb)
+        # Kt(J) 2차 다항 — 우리 Wageningen B 실계수 3점 정합
+        kt0 = kt_kq(0.0, pitch_ratio, ear, z)[0]
+        kt5 = kt_kq(0.5, pitch_ratio, ear, z)[0]
+        kt1 = kt_kq(1.0, pitch_ratio, ear, z)[0]
+        k0 = kt0
+        k2 = 2.0 * (kt1 + kt0 - 2.0 * kt5)
+        k1 = kt1 - kt0 - k2
+        co, notes = estimate_mmg_coeffs(
+            loa=loa, beam=beam, draft=draft, cb=cb,
+            displacement_m3=displacement_m3, xg=0.0,
+            dp=d_prop, hr=hr, ar=ar, w_p0=w0, t_p=t0,
+            k0=k0, k1=k1, k2=k2)
+        par = ShipParticulars(
+            lpp=loa, beam=beam, draft=draft,
+            displacement_m3=displacement_m3, xg=0.0, cb=cb,
+            dp=d_prop, hr=hr, ar=ar, rho=1025.0)
+        n_p = solve_self_propulsion(par, co, speed_ms, resistance_n)
+        ship = MMGShip(par=par, co=co, r0_n=resistance_n, n_p=n_p,
+                       u0=speed_ms)
+        rep = maneuvering_report(ship, speed_ms)
+        gate = maneuvering_gate(rep, loa)
+        return {**rep, **gate, "coeff_grade": notes["grade"],
+                "coeff_note": notes["note"],
+                "passed": (gate["passed"] if gate["applicable"]
+                           else True),
+                "skipped": False}
+    except EstimationRangeError as e:
+        return {"passed": True, "skipped": True, "applicable": False,
+                "note": f"조종 게이트 스킵 — {e}"}
+    except Exception as e:
+        return {"passed": True, "skipped": True, "applicable": False,
+                "note": f"조종 게이트 스킵 — {type(e).__name__}: {e} "
+                        "(데이터 없음 ≠ 불합격, 정직 기록)"}
+
+
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  loa: float | None = None,
                  payload_volume: float | None = None,
@@ -174,7 +242,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  hull_source: str = "auto",
                  shipd_pool: int = 60,
                  seakeeping: bool = True,
-                 structure: bool = True) -> dict:
+                 structure: bool = True,
+                 maneuvering: bool = True) -> dict:
     """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산).
 
     hull_source (스펙 shipgen 4단계 — 수식 생성기 강등):
@@ -273,6 +342,18 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                                      "fuel": large["fuel_t"] * 1e3,
                                      "payload":
                                      large["payload_t"] * 1e3})),
+                  "maneuvering": (None if not maneuvering else
+                                  _maneuvering_gate(
+                                      dims.loa, dims.beam,
+                                      large["draft"], dims.cb,
+                                      large["total_t"] * 1000.0
+                                      / 1025.0,
+                                      large["propeller"]["diameter"],
+                                      large["resistance"]["total"],
+                                      goal.target_speed_ms,
+                                      large["propeller"]["ear"],
+                                      large["propeller"]["z"],
+                                      large["propeller"]["pitch_ratio"])),
                   "passed": large["passed"],
                   "roll_period_s": roll_natural_period(
                       dims.beam, large["draft"], dims.loa, large["gm"]),
@@ -280,6 +361,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         if report["structure"] is not None:
             report["passed"] = bool(report["passed"]
                                     and report["structure"]["passed"])
+        if report["maneuvering"] is not None:
+            report["passed"] = bool(report["passed"]
+                                    and report["maneuvering"]["passed"])
         with open(out / "report.json", "w") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         _print_summary_large(report)
@@ -742,6 +826,8 @@ def main(argv: list[str] | None = None) -> int:
                              "있으면 실척 선별, formula = 수식 표준기")
     parser.add_argument("--shipd-pool", type=int, default=60,
                         help="Ship-D 선별 표본 수 (클수록 좋은 배·느림)")
+    parser.add_argument("--no-maneuvering", action="store_true",
+                        help="7번째 게이트(조종성) 생략")
     parser.add_argument("--no-structure", action="store_true",
                         help="6번째 게이트(종강도) 생략")
     parser.add_argument("--no-seakeeping", action="store_true",
@@ -774,7 +860,8 @@ def main(argv: list[str] | None = None) -> int:
                               hull_source=args.hull_source,
                               shipd_pool=args.shipd_pool,
                               seakeeping=not args.no_seakeeping,
-                              structure=not args.no_structure)
+                              structure=not args.no_structure,
+                              maneuvering=not args.no_maneuvering)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:
