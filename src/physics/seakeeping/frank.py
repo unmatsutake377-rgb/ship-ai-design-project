@@ -116,6 +116,8 @@ def _contour(points):
 def heave_coefficients_frank(points, omega: float, gauss_n: int = 4,
                              rho: float = RHO_SEAWATER) -> Frank2D:
     """전체 윤곽 (수선 좌현 → 킬 → 수선 우현) → heave 2D 계수."""
+    if gauss_n % 2 == 1:
+        gauss_n += 1        # 홀수 절점 = 자기 세그먼트 중점 겹침 (0나눗셈)
     pts, mids, lens, normals = _contour(points)
     n_seg = len(mids)
     nu = omega * omega / G_ACC
