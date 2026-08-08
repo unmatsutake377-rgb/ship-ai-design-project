@@ -36,3 +36,41 @@ def test_iacs_range_honest_rejection():
     )
     with pytest.raises(IACSRangeError):
         iacs_wave_coefficient(10.0)
+
+
+def _box_barge(loa=80.0, beam=10.0, depth=6.0):
+    return trimesh.creation.box(extents=[loa, beam, depth])
+
+
+def test_quasi_static_barge_analytic():
+    """상자 바지선, λ=L 파정 중앙: |M_wave| = ρ·g·B·a·L²/(2π²).
+
+    직벽 상자는 침하 보정 0 (cos 한 주기 적분 = 0) — 손계산 앵커."""
+    from src.physics.structure.wave_loads import quasi_static_wave_moment
+    loa, beam, t = 80.0, 10.0, 2.0
+    mesh = _box_barge(loa, beam)
+    mass = RHO * loa * beam * t
+    wl_z = -3.0 + t
+    amp = 0.5
+    r = quasi_static_wave_moment(mesh, wl_z, [(mass, -40.0, 40.0)],
+                                 wave_amp=amp, wavelength=loa, n=201)
+    m_analytic = RHO * G * beam * amp * loa ** 2 / (2.0 * np.pi ** 2)
+    assert r["m_wave_mid_nm"] == pytest.approx(m_analytic, rel=0.03)
+    assert abs(r["sinkage_m"]) < 0.01 * amp
+
+
+def test_quasi_static_hog_sag_mirror():
+    """파정 중앙 = 호깅(+), 파곡 중앙 = 새깅(−) — 부호 거울."""
+    from src.physics.structure.wave_loads import quasi_static_wave_moment
+    mesh = _box_barge()
+    mass = RHO * 80.0 * 10.0 * 2.0
+    wl_z = -1.0
+    hog = quasi_static_wave_moment(mesh, wl_z, [(mass, -40.0, 40.0)],
+                                   wave_amp=0.5, wavelength=80.0,
+                                   crest_mid=True)
+    sag = quasi_static_wave_moment(mesh, wl_z, [(mass, -40.0, 40.0)],
+                                   wave_amp=0.5, wavelength=80.0,
+                                   crest_mid=False)
+    assert hog["m_wave_mid_nm"] > 0 > sag["m_wave_mid_nm"]
+    assert abs(hog["m_wave_mid_nm"]) == pytest.approx(
+        abs(sag["m_wave_mid_nm"]), rel=0.05)
