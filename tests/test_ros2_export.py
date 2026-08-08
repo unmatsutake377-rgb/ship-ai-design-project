@@ -12,7 +12,7 @@ from src.sim_adapters.ros2_export import export_hydro_yaml, export_urdf
 def report_and_dir(tmp_path_factory):
     out = tmp_path_factory.mktemp("design")
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
-    report = run_pipeline(goal, out, hull_source="formula")
+    report = run_pipeline(goal, out, hull_source="formula", seakeeping=False)
     return report, out
 
 

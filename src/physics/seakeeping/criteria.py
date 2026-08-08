@@ -24,3 +24,45 @@ def roll_natural_period(beam: float, draft: float, lwl: float,
     if gm <= 0:
         return float("inf")   # 복원력 없음 — 주기 정의 불가 (발산)
     return 2.0 * imo_roll_c(beam, draft, lwl) * beam / math.sqrt(gm)
+
+
+# 용도별 내항 운용 한계 (유의 진폭) — NORDFORSK 1987 일반 운용 한계
+# 계보의 개략 (C급 — 정확 표값 확보 시 승급): 계측(survey)은 엄격,
+# 작업·순찰·화물은 일반 한계.
+SEAKEEPING_LIMITS = {
+    "survey":   {"roll_deg": 4.0, "pitch_deg": 2.5, "heave_over_hs": 0.8},
+    "patrol":   {"roll_deg": 6.0, "pitch_deg": 3.0, "heave_over_hs": 1.0},
+    "workboat": {"roll_deg": 6.0, "pitch_deg": 3.0, "heave_over_hs": 1.0},
+    "cargo":    {"roll_deg": 6.0, "pitch_deg": 3.0, "heave_over_hs": 1.0},
+}
+
+# 용도별 설계 해상 상태 (Hs[m], Tz[s]) — 운용 환경 개략 (C급):
+# 소형 USV = 연안 (SS2~3), cargo = 외항 (SS5 근방)
+DESIGN_SEA_STATE = {
+    "survey": (0.5, 3.0), "patrol": (0.75, 3.5),
+    "workboat": (0.5, 3.0), "cargo": (3.5, 8.5),
+}
+
+
+def seakeeping_gate(mesh, draft: float, mass: float, iyy: float,
+                    beam: float, lwl: float, gm: float,
+                    purpose: str) -> dict:
+    """5번째 게이트 — 설계 해상에서 유의 응답 vs 용도 한계 합불.
+
+    반환: 성적 + 항목별 판정 + passed. 기준·해상 상태는 C급 개략
+    명시 (수집·문헌 확보로 승급 예정)."""
+    from src.physics.seakeeping.waves import seakeeping_report
+
+    hs, tz = DESIGN_SEA_STATE.get(purpose, DESIGN_SEA_STATE["survey"])
+    lim = SEAKEEPING_LIMITS.get(purpose, SEAKEEPING_LIMITS["survey"])
+    rep = seakeeping_report(mesh, draft, mass, iyy, beam, lwl, gm,
+                            hs, tz, n_freq=5)
+    checks = {
+        "roll": rep["sig_roll_deg"] <= lim["roll_deg"],
+        "pitch": rep["sig_pitch_deg"] <= lim["pitch_deg"],
+        "heave": rep["sig_heave_m"] <= lim["heave_over_hs"] * hs,
+    }
+    return {**rep, "limits": lim, "checks": {k: bool(v) for k, v
+                                             in checks.items()},
+            "passed": bool(all(checks.values())),
+            "grade_note": "기준·해상 상태 = NORDFORSK 계보 개략 (C급)"}

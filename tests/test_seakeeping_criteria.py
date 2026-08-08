@@ -27,3 +27,20 @@ def test_stiff_ship_short_period():
     stiff = roll_natural_period(1.0, 0.3, 3.0, gm=0.40)
     assert stiff < soft
     assert roll_natural_period(1.0, 0.3, 3.0, gm=0.0) == float("inf")
+
+
+def test_seakeeping_gate_e2e():
+    """5번째 게이트 관통: Wigley 조사선 — 연안 해상에서 성적·합불."""
+    from src.ai.hull_generator import generate_hull_mesh
+    from src.core.types import MainDimensions
+    from src.physics.seakeeping.criteria import seakeeping_gate
+
+    dims = MainDimensions(loa=3.0, beam=0.9, depth=0.5, draft_design=0.3,
+                          cb=0.45)
+    mesh = generate_hull_mesh(dims, cm=0.85)
+    m = 1025.0 * 0.45 * 3.0 * 0.9 * 0.3
+    g = seakeeping_gate(mesh, 0.3, m, m * 0.5625, beam=0.9, lwl=3.0,
+                        gm=0.15, purpose="survey")
+    assert set(g["checks"]) == {"roll", "pitch", "heave"}
+    assert isinstance(g["passed"], bool)
+    assert g["sig_heave_m"] > 0 and g["roll_period_s"] > 0

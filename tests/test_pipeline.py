@@ -11,7 +11,7 @@ from src.pipeline import run_pipeline
 
 def test_run_pipeline_survey(tmp_path):
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
-    report = run_pipeline(goal, tmp_path, hull_source="formula")
+    report = run_pipeline(goal, tmp_path, hull_source="formula", seakeeping=False)
     # 리포트 필수 필드
     for key in ("goal", "dimensions", "regime", "weights", "hydrostatics",
                 "resistance", "propulsion", "coefficients", "passed",
@@ -29,7 +29,7 @@ def test_run_pipeline_survey(tmp_path):
 def test_design_spiral_converges_and_realistic(tmp_path):
     """나선 수렴 + 실측 추진계가 고정비율(15%) 개략보다 가벼워야 함."""
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
-    report = run_pipeline(goal, tmp_path, hull_source="formula")
+    report = run_pipeline(goal, tmp_path, hull_source="formula", seakeeping=False)
     p = report["propulsion"]
     w = report["weights"]
     assert 2 <= p["spiral_iterations"] <= 12
@@ -51,7 +51,7 @@ def test_design_spiral_converges_and_realistic(tmp_path):
 def test_pipeline_semi_displacement_designs(tmp_path):
     """Phase C-1: 반배수량 요청이 이제 설계됨 — 트랜섬 계열 경로."""
     goal = GoalSpec(target_speed_ms=3.0, payload_kg=100.0, purpose="patrol")
-    report = run_pipeline(goal, tmp_path, hull_source="formula")
+    report = run_pipeline(goal, tmp_path, hull_source="formula", seakeeping=False)
     assert report["regime"] == "SEMI_DISPLACEMENT"
     assert report["hull_family"] == "transom"
     assert report["resistance"]["total"] > 0
@@ -80,7 +80,7 @@ def test_maxbox_space_check_rejects_oversized(tmp_path):
     """#27: 무게는 실려도 부피가 안 들어가면 불합격."""
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
     report = run_pipeline(goal, tmp_path, payload_volume=50.0,
-                          hull_source="formula")  # 50 m³ 괴물
+                          hull_source="formula", seakeeping=False)  # 50 m³ 괴물
     assert report["checks_space"] is False
     assert report["passed"] is False
     assert report["maxbox"]["volume"] < 50.0
@@ -89,7 +89,7 @@ def test_maxbox_space_check_rejects_oversized(tmp_path):
 def test_maxbox_default_density_passes(tmp_path):
     """기본 밀도 환산 경로: 기존 데모(100 kg 조사장비)는 공간 합격 유지."""
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
-    report = run_pipeline(goal, tmp_path, hull_source="formula")
+    report = run_pipeline(goal, tmp_path, hull_source="formula", seakeeping=False)
     assert report["checks_space"] is True
     assert "밀도 가정" in report["maxbox"]["volume_basis"]
     assert report["maxbox"]["margin_ratio"] > 0
@@ -97,7 +97,7 @@ def test_maxbox_default_density_passes(tmp_path):
 
 def test_report_contains_speed_limit(tmp_path):
     goal = GoalSpec(target_speed_ms=1.5, payload_kg=100.0, purpose="survey")
-    report = run_pipeline(goal, tmp_path, hull_source="formula")
+    report = run_pipeline(goal, tmp_path, hull_source="formula", seakeeping=False)
     vmax = report["max_displacement_speed"]
     assert vmax > report["goal"]["target_speed_ms"]  # 통과했으니 여유 있어야
 

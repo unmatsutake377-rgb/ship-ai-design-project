@@ -21,7 +21,7 @@ def test_pipeline_auto_judges_shipd_vs_formula(tmp_path):
     어느 쪽이 이길지는 표본 운 — 판정 흔적(hull_note)과 관통이 계약."""
     from src.pipeline import run_pipeline
 
-    report = run_pipeline(_goal(), tmp_path, shipd_pool=40)
+    report = run_pipeline(_goal(), tmp_path, shipd_pool=40, seakeeping=False)
     assert report["hull_source"] in ("shipd", "formula")
     assert report["hull_note"]           # 판정 사유 필수 (rel 병기)
     assert "배" in report["hull_note"]   # 비율 명시
@@ -35,7 +35,7 @@ def test_pipeline_shipd_forced_skips_guard(tmp_path):
     from src.pipeline import run_pipeline
 
     report = run_pipeline(_goal(), tmp_path, hull_source="shipd",
-                          shipd_pool=40)
+                          shipd_pool=40, seakeeping=False)
     assert report["hull_source"] == "shipd"
     assert report["hull_id"] >= 0
     assert report["passed"]
@@ -47,7 +47,7 @@ def test_pipeline_formula_override(tmp_path):
     """--hull-source formula: 기존 수식 경로 유지 (폴백 보존)."""
     from src.pipeline import run_pipeline
 
-    report = run_pipeline(_goal(), tmp_path, hull_source="formula")
+    report = run_pipeline(_goal(), tmp_path, hull_source="formula", seakeeping=False)
     assert report["hull_source"] == "formula"
     assert "hull_cm" in report
 

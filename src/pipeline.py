@@ -119,7 +119,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  payload_volume: float | None = None,
                  cm_override: float | None = None,
                  hull_source: str = "auto",
-                 shipd_pool: int = 60) -> dict:
+                 shipd_pool: int = 60,
+                 seakeeping: bool = True) -> dict:
     """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산).
 
     hull_source (스펙 shipgen 4단계 — 수식 생성기 강등):
@@ -188,7 +189,20 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                   "hull_family": "large_cargo",
                   "froude_length": froude_length(goal.target_speed_ms,
                                                  dims.loa),
-                  "large": large, "passed": large["passed"],
+                  "large": large,
+                  "seakeeping": (None if not seakeeping else
+                                 __import__(
+                                     "src.physics.seakeeping.criteria",
+                                     fromlist=["seakeeping_gate"]
+                                 ).seakeeping_gate(
+                                     mesh, large["draft"],
+                                     large["total_t"] * 1000.0,
+                                     large["total_t"] * 1000.0
+                                     * (0.25 * dims.loa) ** 2,
+                                     beam=dims.beam, lwl=dims.loa,
+                                     gm=large["gm"],
+                                     purpose=goal.purpose)),
+                  "passed": large["passed"],
                   "roll_period_s": roll_natural_period(
                       dims.beam, large["draft"], dims.loa, large["gm"]),
                   "mesh_file": "hull.stl"}
@@ -421,6 +435,19 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                       "note": "IMO 5L 기준은 대형선 외삽 + Clarke 계수 "
                               "외삽 (이중 외삽) — 경고 표기용, 필터 아님"}
 
+    seakeeping_rep = None
+    if seakeeping and regime is Regime.DISPLACEMENT:
+        # 5번째 게이트 (내항성 4단계): 설계 해상에서 유의 응답 합불
+        from src.physics.seakeeping.criteria import seakeeping_gate
+        try:
+            seakeeping_rep = seakeeping_gate(
+                mesh, hydro.draft, weights.total_mass, weights.izz,
+                beam=dims.beam, lwl=dims.loa, gm=hydro.gm,
+                purpose=goal.purpose)
+        except Exception as e:
+            seakeeping_rep = {"passed": True,
+                              "note": f"내항 계산 실패 — 게이트 보류: {e}"}
+
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
 
@@ -461,7 +488,10 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "maxbox": maxbox_report,
         "agility": agility_report,
         "checks_space": bool(space_ok),
-        "passed": bool(hydro.passed and space_ok),
+        "seakeeping": seakeeping_rep,
+        "passed": bool(hydro.passed and space_ok
+                       and (seakeeping_rep is None
+                            or seakeeping_rep["passed"])),
         "mesh_file": mesh_file,
     }
     with open(out / "report.json", "w") as f:
@@ -506,6 +536,12 @@ def _print_summary_large(report: dict) -> None:
           f"{lg['freeboard_min_icll']:.2f}) → "
           f"{'합격' if report['passed'] else '불합격'}")
     print(f"주의            : {lg['kg_note']}")
+    sk = report.get("seakeeping")
+    if sk and "sig_roll_deg" in sk:
+        print(f"내항 (5게이트)  : Hs {sk['sea_state']['hs_m']} m에서 "
+              f"heave {sk['sig_heave_m']:.2f} m·pitch "
+              f"{sk['sig_pitch_deg']:.1f}°·roll {sk['sig_roll_deg']:.1f}°"
+              f" → {'합격' if sk['passed'] else '불합격'} (C급 기준)")
 
 
 def _print_summary(report: dict) -> None:
@@ -612,6 +648,8 @@ def main(argv: list[str] | None = None) -> int:
                              "있으면 실척 선별, formula = 수식 표준기")
     parser.add_argument("--shipd-pool", type=int, default=60,
                         help="Ship-D 선별 표본 수 (클수록 좋은 배·느림)")
+    parser.add_argument("--no-seakeeping", action="store_true",
+                        help="내항 게이트 생략 (빠른 실행)")
     args = parser.parse_args(argv)
 
     # 3입력 UX (#25 오너 제안): 속도 생략 시 용도가 결정
@@ -638,7 +676,8 @@ def main(argv: list[str] | None = None) -> int:
                               cm_override=args.cm,
                               payload_volume=args.payload_volume,
                               hull_source=args.hull_source,
-                              shipd_pool=args.shipd_pool)
+                              shipd_pool=args.shipd_pool,
+                              seakeeping=not args.no_seakeeping)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:
