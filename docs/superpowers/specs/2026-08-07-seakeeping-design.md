@@ -59,3 +59,22 @@
   낮추는 역처방 — URL은 검증의 손잡이, 확인은 우리가 (1차분 URL
   5개 중 4개 실존·값 일치 실적). 신규 수치가 기확인 실측과 충돌
   (O-16 폭 2.00 vs 실측 1.83)하면 환각 경보.
+
+## 8. Tasai/Ursell 정식화 원전 확보 (2026-08-08)
+
+- **원전**: Journée & Massie, "Offshore Hydromechanics" (TU Delft
+  OCW 공개 교재, 570쪽) — ocw.tudelft.nl 공식 배포 PDF. 로컬 보존:
+  `references/OffshoreHydromechanics_Journee_Massie.pdf` (gitignore
+  — 대용량·재배포 회피, 출처 URL로 재확보 가능)
+- 확보 경로 기록: SEAWAY 이론 매뉴얼 미러 전멸 (kashti 타임아웃·
+  shipmotions.nl 도메인 파킹·Wayback 스냅샷 부재) → 같은 저자의
+  공식 OCW 교재로 대체 — 7장 Potential Coefficients가 동일 정식화.
+- **구현 인덱스 (PDF 페이지, 0-기준)**:
+  - p264~266: Ursell 좌표계·경계조건 6종 (식 7.55~7.67)
+  - p267~268: 속도포텐셜·스트림함수 급수 — heave φA2m·φBc·φBs
+    (식 7.69~7.74, 특이적분 포함)
+  - p269: P2m·Q2m 결정 경계조건 + φ' 표면값 (식 7.76~7.78)
+  - p270~271: 압력(7.79) → 하중 적분 → M33'·N33' (7.82)
+  - p272~: 식 7.84 유효범위 주석 + Lewis form 확장 (Tasai, p274~)
+- 다음 회차 = Ursell 반원 heave 구현 (앵커: 무한주파수 ρπR²/2
+  일치·b33≥0·에너지 관계) → Tasai Lewis 확장.

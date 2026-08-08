@@ -17,3 +17,4 @@ outputs/
 ros2_ws/export/
 # Obsidian 개인 설정 (작업 공간·테마 — 커밋 제외)
 .obsidian/
+references/
