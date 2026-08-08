@@ -63,3 +63,81 @@ def _cumtrapz(y: np.ndarray, x: np.ndarray) -> np.ndarray:
     """누적 사다리꼴 적분 — V·M 조립 공용."""
     seg = 0.5 * (y[1:] + y[:-1]) * np.diff(x)
     return np.concatenate([[0.0], np.cumsum(seg)])
+
+
+def station_area(mesh, x: float, waterline_z: float,
+                 nz: int = 60) -> float:
+    """스테이션 x, 수선 z 아래 몰수 단면적 [m²].
+
+    수평 스캔라인: 각 z에서 단면 윤곽 변과의 교차 y 최대값 =
+    반폭 (대칭 선체). 점 보간 방식(sections.station_geometry)과
+    달리 성긴 폴리곤(상자)·수평 변에도 강건 — Lewis 제약 없음,
+    벌브·선수미 단면도 셈."""
+    sec = mesh.section(plane_origin=[float(x), 0, 0],
+                       plane_normal=[1, 0, 0])
+    if sec is None or not len(sec.entities):
+        return 0.0
+    edges = []
+    z_keel = np.inf
+    for e in sec.entities:
+        d = e.discrete(sec.vertices)          # (N,3) 폴리라인
+        z_keel = min(z_keel, float(d[:, 2].min()))
+        for p0, p1 in zip(d[:-1], d[1:]):
+            edges.append((p0[1], p0[2], p1[1], p1[2]))   # (y0,z0,y1,z1)
+    if not edges or waterline_z - z_keel < 1e-6:
+        return 0.0
+    zs = np.linspace(z_keel + 1e-6, waterline_z - 1e-9, nz)
+    halves = np.zeros(nz)
+    for y0, z0, y1, z1 in edges:
+        zlo, zhi = min(z0, z1), max(z0, z1)
+        if zhi - zlo < 1e-12:
+            continue                           # 수평 변 — 교차 무의미
+        hit = (zs >= zlo) & (zs <= zhi)
+        if not np.any(hit):
+            continue
+        t = (zs[hit] - z0) / (z1 - z0)
+        ys = y0 + t * (y1 - y0)
+        halves[hit] = np.maximum(halves[hit], ys)
+    return 2.0 * float(np.trapezoid(halves, zs))
+
+
+@dataclass(frozen=True)
+class LoadCurves:
+    xs: np.ndarray            # 스테이션 [m] (선미→선수)
+    weight_npm: np.ndarray    # w(x) [N/m]
+    buoy_npm: np.ndarray      # b(x) [N/m]
+    shear_n: np.ndarray       # V(x) [N]
+    moment_nm: np.ndarray     # M(x) [N·m] — M>0 호깅
+    buoy_scale: float         # 부력 폐합 배율 (1 근방 = 절단 건강)
+    shear_residual_n: float   # 보정 전 V(L) 잔차 (정직 기록)
+    moment_residual_nm: float
+
+
+def still_water_curves(mesh, draft: float, blocks,
+                       n: int = 101) -> LoadCurves:
+    """정수 전단력·굽힘 모멘트 곡선.
+
+    draft = 메쉬 좌표계 수선 z. 부력은 총중량으로 폐합 정규화
+    (배율 기록 — 1에서 멀면 절단·평형 이상 신호). 양끝 잔차는
+    선형 보정 후 원값 기록 (통상 관행·정직 표기)."""
+    (xmin, _, _), (xmax, _, _) = mesh.bounds
+    xs = np.linspace(xmin, xmax, n)
+    w = weight_linear_density(xs, blocks)
+    total_w = sum(m for m, _, _ in blocks) * G_ACC
+
+    b = np.array([station_area(mesh, x, draft) for x in xs])
+    b *= RHO_SEAWATER * G_ACC
+    integ_b = float(np.trapezoid(b, xs))
+    scale = total_w / integ_b if integ_b > 0 else 1.0
+    b = b * scale
+
+    q = w - b
+    shear = _cumtrapz(q, xs)
+    moment = _cumtrapz(shear, xs)
+    v_res, m_res = float(shear[-1]), float(moment[-1])
+    ramp = (xs - xs[0]) / (xs[-1] - xs[0])
+    shear = shear - v_res * ramp
+    moment = moment - m_res * ramp
+    return LoadCurves(xs=xs, weight_npm=w, buoy_npm=b, shear_n=shear,
+                      moment_nm=moment, buoy_scale=scale,
+                      shear_residual_n=v_res, moment_residual_nm=m_res)
