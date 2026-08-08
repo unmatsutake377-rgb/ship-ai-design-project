@@ -44,10 +44,18 @@ def fit_lewis(beam: float, draft: float, sigma: float) -> LewisSection:
     """(B, T, σ) → Lewis 계수. 범위 밖은 LewisRangeError."""
     if beam <= 0 or draft <= 0:
         raise LewisRangeError("치수는 양수여야 합니다")
-    if not 0.30 <= sigma <= 1.0:
-        raise LewisRangeError(
-            f"σ={sigma:.3f}는 Lewis 유효 대역(0.30~1.0) 밖")
     h = beam / (2.0 * draft)
+    if not 0.01 < h < 100.0:
+        raise LewisRangeError(f"H={h:.3f}는 수치 안정 대역 밖 (원전 7-23)")
+    # 원전 식 7.95 (Journée·Massie p273): re-entrant 하한·비대칭 상한.
+    # 범위 밖은 "가장 가까운 경계로 클램프해 최선의 Lewis 계수" (원전
+    # 지시 그대로 — 거절이 아니라 정직 클램프 + 경계 σ 사용)
+    if h <= 1.0:
+        sig_lo = 3.0 * math.pi / 32.0 * (2.0 - h)
+    else:
+        sig_lo = 3.0 * math.pi / 32.0 * (2.0 - 1.0 / h)
+    sig_hi = math.pi / 32.0 * (10.0 + h + 1.0 / h)
+    sigma = min(max(sigma, sig_lo), min(sig_hi, 1.0))
     lam = (h - 1.0) / (h + 1.0)
     c1 = 3.0 + 4.0 * sigma / math.pi + (1.0 - 4.0 * sigma / math.pi) \
         * lam ** 2

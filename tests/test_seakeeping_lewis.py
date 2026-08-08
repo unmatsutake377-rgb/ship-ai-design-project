@@ -48,6 +48,12 @@ def test_fuller_section_more_added_mass():
     assert added_mass_heave_inf(full) > added_mass_heave_inf(lean)
 
 
-def test_out_of_range_honest_refusal():
+def test_out_of_range_clamps_to_border():
+    """원전 식 7.95 지시: 범위 밖 σ는 가장 가까운 경계로 클램프해
+    최선의 Lewis 계수 — H=1에서 하한 3π/32·(2−1)=0.2945."""
+    import math as _m
+
+    sec = fit_lewis(2.0, 1.0, 0.20)     # 극단 야윈 → 하한 클램프
+    assert sec.sigma == pytest.approx(3 * _m.pi / 32, rel=1e-9)
     with pytest.raises(LewisRangeError):
-        fit_lewis(2.0, 1.0, 0.20)      # 극단 야윈 단면
+        fit_lewis(2.0, -1.0, 0.8)       # 비물리 치수는 여전히 거절
