@@ -47,12 +47,9 @@ def _station_contour(sec, n: int = 16):
     return left + right[1:]
 
 
-def heave_pitch_rao(mesh, draft: float, mass: float, iyy: float,
-                    omegas, speed: float = 0.0,
-                    n_stations: int = 11, contour_n: int = 12,
-                    rho: float = RHO_SEAWATER) -> list[StripRAO]:
-    """heave·pitch RAO(ω) — 선수파, G≈수선 중앙 가정 (대칭 선형)."""
-    from src.physics.seakeeping.frank import heave_coefficients_frank
+def sectional_setup(mesh, draft: float, n_stations: int = 11,
+                    contour_n: int = 12):
+    """스테이션 추출 + G 기준 x + 수선 반폭 — RAO·하중 적분 공용."""
     from src.physics.seakeeping.sections import extract_stations
 
     stations = extract_stations(mesh, draft, n_stations=n_stations)
@@ -62,18 +59,59 @@ def heave_pitch_rao(mesh, draft: float, mass: float, iyy: float,
     xs = np.array([x - xmid for x, _ in stations])     # G 기준
     secs = [s for _, s in stations]
     yw = np.array([s.beam / 2.0 for s in secs])        # 수선 반폭
+    return xs, secs, yw
+
+
+def sectional_coeffs(secs, we: float, contour_n: int = 12):
+    """단면 2D 부가질량·조파감쇠 (Frank, 조우 주파수)."""
+    from src.physics.seakeeping.frank import heave_coefficients_frank
+
+    m2d = np.zeros(len(secs))
+    n2d = np.zeros(len(secs))
+    for i, s in enumerate(secs):
+        f = heave_coefficients_frank(_station_contour(s, contour_n),
+                                     we, gauss_n=2)   # 짝수 — 자기 세그먼트 중점 겹침 방지
+        m2d[i], n2d[i] = f.added_mass, f.damping
+    return m2d, n2d
+
+
+def sectional_excitation(secs, xs, yw, k: float, we: float,
+                         m2d, n2d, rho: float = RHO_SEAWATER):
+    """스테이션별 기진력 밀도 x3 [N/m per ζa] — FK 유효진폭 C3.
+
+    (8.41 심수): C3 = 1 − (k/yw)∫e^{kz}·y(z)dz ≈ e^{−kT*},
+    Lewis 사상 곡선 적분. 원전 8.45 복소화: ζ̈̂ = −kg ζ̂,
+    ζ̇̂ = i(kg/ωe) ζ̂ (θ = ωet+kx)."""
+    from src.physics.seakeeping.lewis import section_points
+
+    x3 = np.zeros(len(secs), dtype=complex)
+    for i, s in enumerate(secs):
+        pts = section_points(s, n=30)
+        zs = np.array([p[1] - s.draft for p in pts])   # −T(킬)→0(수선)
+        ys = np.array([p[0] for p in pts])
+        integ = float(np.trapezoid(ys * np.exp(k * zs), zs))
+        c3 = max(1.0 - (k / max(yw[i], 1e-9)) * abs(integ), 0.0)
+        zeta = c3 * np.exp(1j * k * xs[i])       # ζ*(x) 복소 진폭
+        acc = -k * G_ACC * zeta
+        vel = 1j * (k * G_ACC / we) * zeta
+        x3[i] = m2d[i] * acc + n2d[i] * vel \
+            + 2.0 * rho * G_ACC * yw[i] * zeta
+    return x3
+
+
+def heave_pitch_rao(mesh, draft: float, mass: float, iyy: float,
+                    omegas, speed: float = 0.0,
+                    n_stations: int = 11, contour_n: int = 12,
+                    rho: float = RHO_SEAWATER) -> list[StripRAO]:
+    """heave·pitch RAO(ω) — 선수파, G≈수선 중앙 가정 (대칭 선형)."""
+    xs, secs, yw = sectional_setup(mesh, draft, n_stations=n_stations,
+                                   contour_n=contour_n)
 
     out = []
     for omega in omegas:
         k = omega * omega / G_ACC
         we = omega + k * speed              # 선수파 조우 주파수
-        # 단면 2D 계수 (조우 주파수에서)
-        m2d = np.zeros(len(secs))
-        n2d = np.zeros(len(secs))
-        for i, s in enumerate(secs):
-            f = heave_coefficients_frank(_station_contour(s, contour_n),
-                                         we, gauss_n=2)   # 짝수 — 자기 세그먼트 중점 겹침 방지
-            m2d[i], n2d[i] = f.added_mass, f.damping
+        m2d, n2d = sectional_coeffs(secs, we, contour_n=contour_n)
         dmdx = np.gradient(m2d, xs)
         dndx = np.gradient(n2d, xs)
 
@@ -94,27 +132,9 @@ def heave_pitch_rao(mesh, draft: float, mass: float, iyy: float,
         b55 = tr((n2d - v * dmdx) * xs ** 2)
         c55 = 2.0 * rho * G_ACC * tr(yw * xs ** 2)
 
-        # 기진력 (선수파 μ=180°: 위상 e^{+ikx}) — FK 유효진폭 C3
-        # (8.41 심수): C3 = 1 − (k/yw)∫e^{kz}·y(z)dz ≈ e^{−kT*}
-        # Lewis 단면 적분 (사상 곡선)
-        from src.physics.seakeeping.lewis import section_points
-        x3 = np.zeros(len(secs), dtype=complex)
-        for i, s in enumerate(secs):
-            pts = section_points(s, n=30)
-            zs = np.array([p[1] - s.draft for p in pts])   # 0(수선)→−T(킬)
-            ys = np.array([p[0] for p in pts])
-            integ = float(np.trapezoid(ys * np.exp(k * zs), zs))
-            # zs 킬→수선 순서 주의: section_points는 킬(−T)→수선(0)
-            c3 = 1.0 - (k / max(yw[i], 1e-9)) * abs(integ)
-            c3 = max(c3, 0.0)
-            zeta = c3 * np.exp(1j * k * xs[i])       # ζ*(x) 복소 진폭
-            # ζ̈* = −kg·ζ*, ζ̇* = d/dt → −iωe·(−kg/ωe²)? 원전 8.45:
-            # ζ̈ = −kg ζ* cosθ, ζ̇ = −(kg/ωe) ζ* sinθ, θ = ωet+kx
-            # 복소 (cosθ = Re e^{iθ}): ζ̈̂ = −kg ζ̂, ζ̇̂ = i(kg/ωe) ζ̂
-            acc = -k * G_ACC * zeta
-            vel = 1j * (k * G_ACC / we) * zeta
-            x3[i] = m2d[i] * acc + n2d[i] * vel \
-                + 2.0 * rho * G_ACC * yw[i] * zeta
+        # 기진력 (선수파 μ=180°: 위상 e^{+ikx}) — sectional_excitation
+        x3 = sectional_excitation(secs, xs, yw, k, we, m2d, n2d,
+                                  rho=rho)
         xw3 = complex(np.trapezoid(x3, xs))
         xw5 = complex(np.trapezoid(-x3 * xs, xs))
 
