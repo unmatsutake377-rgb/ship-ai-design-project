@@ -104,3 +104,17 @@ Frank 결과를 반원에서 Ursell과 대조하는 이중검증 구도).
 - 구현 주의: 복소 부호 규약 (Frank 1967 원표기 유지 — 원전 명시)
   이 사고 다발 지점 — 반원 Ursell 대조가 1차 심판, 컨텍스트 신선한
   회차에서 착수할 것 (08-08 판단)
+
+## 10. Gazebo 파랑 교차 검증 개통 (2026-08-09 — 오너 "둘 다" 후반)
+
+- **인프라**: ship-sim-waves 이미지 (Dockerfile.waves — asv_wave_sim
+  gz-waves를 GZ_VERSION=harmonic으로 소스 빌드. 의존 사슬 실측:
+  OSRF 저장소→boost 3종→Harmonic 스위치→LD_LIBRARY_PATH)
+- **실험**: 규칙파(sinusoid WavesModel)에 설계 산출 배(STL collision
+  + gz-waves Hydrodynamics — 침수 체적 부력·점성, **우리 계수 미주입**
+  = 독립 물리) 계류 → dynamic_pose 시계열 → heave 진폭 → 실측 RAO
+- **판정**: 장파(λ/L=6) Gazebo 0.935 vs 스트립 0.997 vs 확정값 1.0
+  — **다른 두 물리가 파면 타기 극한에서 합의**. 중파(λ/L=2) 0.63 vs
+  0.81 (23%) — 시뮬은 준정적 부력(방사 감쇠·부가질량 없음)이라
+  중파장 편차는 방법론 차이로 정직 기록
+- 재현: ros2_ws/docker/run_wave_test.sh
