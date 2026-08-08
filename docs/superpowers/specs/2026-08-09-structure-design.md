@@ -71,6 +71,31 @@
   - p7~ S11.5: 좌굴 검사 (판·종늑골) — 2단계 이후 재료
 - 계획 예상 상수와 원전 완전 일치 — 수정 불요.
 
+### §3 보강 2 — 국부 스캔틀링 원전 확보 (2026-08-09, 2단계 재료)
+
+- **DNV Rules for Ships Pt.3 Ch.1** "Hull Structural Design — Ships
+  with Length 100 metres and above" (January 2016, 187쪽) →
+  `references/DNV_Pt3Ch1_hull.pdf` (civamblog 공개 미러 — DNV 구판
+  공식 문서, A급 계보)
+- **DNV Rules for Ships Pt.3 Ch.2** "— Length Less than 100 metres"
+  (January 2015, 107쪽) → `references/DNV_Pt3Ch2_hull_small.pdf`
+- 구현 인덱스 (Ch.1, PDF 0-기준):
+  - p11: 공통 기호 — f1 재료 계수 (Sec.2), tk 부식 여유, E 강
+    2.06e5 / 알루 0.69e5 N/mm²
+  - p56: Sec.4 설계 해수 압력 — p1 = 10·h0 + pdp (수선 아래),
+    pdp = ks·CW + kf − 1.2(T−z) 계열, ks=2 (0.2L~0.7L 미드십)
+  - p89: Sec.6 선저 판 두께 — **t = 15.8·ka·s·√p/√σ + tk (mm)**,
+    σ = 120·f1 (종늑골식 0.4L 내), 킬 최소 t = 7.0 + 0.05L1/f1 + tk
+  - p90: 최소 두께 t0 계열 (5.0~7.0 + 0.03~0.04L1/f1)
+  - p91: 늑골 단면계수 Z = 0.63·l²·s·p·wk/f1 (cm³) 계열 —
+    종늑골식은 Sec.6 C700 (구현 시 재판독)
+- 알루미늄: DNV HSLC 규칙 미확보 (미러 없음) — 강 규칙식 + 재료
+  계수 환산 (σf 비례, 용접부 강도 기준) **C급 정직 표기**, 원전
+  확보 백로그
+- FRP: ISO 12215-5 유료 — 공개 적층 물성 대역으로 C급, 백로그
+- 국제선급 아닌 IRS(International Register) PDF도 확보했으나
+  계보 낮음 — 참고용만 (`references/IRS_Part3_hull.pdf`)
+
 ## 4. 파이프라인 통합·되먹임
 
 - `run_pipeline` 6번째 게이트:
