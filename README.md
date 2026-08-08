@@ -59,7 +59,7 @@ python -m src.pipeline --speed 1.5 --payload 100 --purpose survey --out outputs/
 | **러더(방향타)** | 조타·추력 분리 — 실물 스펙(Mandel 양력식·DNV 면적·서보) + 파이썬·Gazebo(직립 세계) 교차 검증. 저속 추종은 러더 필수 입증 (0.73 추종 vs 차동 1.61 폭주) (`--steering diff\|rudder2\|rudder1`) |
 | **CFD 훅 + 능동학습** | OpenFOAM 정밀 해석 연동 — 격자 캠페인으로 방법 한계까지 정직 기록 |
 | **전 크기 개방** | "크기는 사용자의 축" — 소형 USV와 **100 m 화물선이 같은 CLI**: cargo 용도 → Holtrop-Mennen 저항 (KCS 공개 벤치마크 대조) + Watson 경하 + Wageningen B 프로펠러 실설계 (공개 계수·캐비테이션 검사) + 실물 엔진 카탈로그 (Wärtsilä·MAN — A급 3종) + IMO GM·ICLL 건현 게이트, Ship-D 실척과 실측 A/B. 예: `--payload 5000000 --purpose cargo --endurance 240` → DWT 5,000 t급 합격 설계 |
-| **파랑·내항성 (캠페인 완주)** | 스트립 이론 정통 — Lewis 사상·Ursell 반원(에너지 항등식 1.000)·Frank 임의 단면(이중검증)·heave/pitch RAO(장파 극한 0.997)·ITTC 스펙트럼(m0=Hs²/16)·**5번째 게이트** ("이 파도에서 일할 수 있나" — 용도별 합불). 첫 판정: 2 m 조사선 연안 roll 28.5° 불합격(소형 USV 실제 약점 검출)·100 m 화물선 외항 합격 (`--no-seakeeping`으로 생략 가능) |
+| **파랑·내항성 (캠페인 완주)** | 스트립 이론 정통 — Lewis 사상·Ursell 반원(에너지 항등식 1.000)·Frank 임의 단면(이중검증)·heave/pitch RAO(장파 극한 0.997)·ITTC 스펙트럼(m0=Hs²/16)·**5번째 게이트** ("이 파도에서 일할 수 있나" — 용도별 합불). 첫 판정: 2 m 조사선 연안 roll 28.5° 불합격(소형 USV 실제 약점 검출)·100 m 화물선 외항 합격 (`--no-seakeeping`으로 생략 가능). **Gazebo 파랑 세계 교차 검증**: 독립 물리(asv_wave_sim 침수 체적)가 장파 극한에서 스트립 이론과 합의 (0.94/1.00 vs 확정값 1.0) — `ros2_ws/docker/run_wave_test.sh` |
 | **실선 생성기(ShipGen)** | Ship-D 45파라미터가 정식 생성기로 — 조건(짐·속도)이 문법을 결정(규칙 0줄), 파이프라인은 실척 vs 수식 실측 A/B로 이긴 쪽 채택 (`--hull-source auto\|shipd\|formula`). 최적화 3계층: 빠른 선별(1분) < 부분공간 NSGA(~10분) < 전차원 NSGA(~35분, Wigley·부분공간 모두 격파) |
 
 물리 검증 원칙은 그대로: 모든 모듈이 해석해·문헌·독립 구현 대조를 통과해야 병합 (테스트 350개).
