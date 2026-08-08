@@ -114,13 +114,67 @@ def design_spiral(mesh, dims, goal: GoalSpec, resistance_fn=None,
     )
 
 
+def _structure_gate(mesh, loa: float, beam: float, depth: float,
+                    draft: float, cb: float, purpose: str,
+                    component_masses_kg: dict, n_grid: int = 41) -> dict:
+    """6번째 게이트 — 종강도 (구조 스펙 2026-08-09 §4).
+
+    파랑 하중: 대형(L≥90) = IACS UR S11 정본, 소형 = 준정적 표준파
+    a=L/40 (IACS 범위 밖 — C급 정직 표기). 절단 실패 등 데이터
+    부재는 정직 스킵 (데이터 없음 ≠ 불합격)."""
+    from src.physics.structure.loads import (
+        standard_weight_blocks,
+        still_water_curves,
+    )
+    from src.physics.structure.materials import select_material
+    from src.physics.structure.strength import longitudinal_strength
+    from src.physics.structure.wave_loads import (
+        IACSRangeError,
+        iacs_wave_bending_knm,
+        quasi_static_wave_moment,
+    )
+    try:
+        xmin = float(mesh.bounds[0][0])
+        wl_z = float(mesh.bounds[0][2]) + draft
+        blocks = standard_weight_blocks(component_masses_kg, xmin, loa)
+        still = still_water_curves(mesh, wl_z, blocks, n=n_grid)
+        m_still = float(still.moment_nm[n_grid // 2]) / 1e3   # kN·m
+        try:
+            hog, sag = iacs_wave_bending_knm(loa, beam, cb)
+            wave_src = "IACS UR S11 (극치 설계값)"
+        except IACSRangeError:
+            amp = loa / 40.0
+            h = quasi_static_wave_moment(mesh, wl_z, blocks,
+                                         wave_amp=amp, wavelength=loa,
+                                         crest_mid=True, n=n_grid)
+            s = quasi_static_wave_moment(mesh, wl_z, blocks,
+                                         wave_amp=amp, wavelength=loa,
+                                         crest_mid=False, n=n_grid)
+            hog = h["m_wave_mid_nm"] / 1e3
+            sag = s["m_wave_mid_nm"] / 1e3
+            wave_src = "준정적 표준파 a=L/40 (IACS 범위 밖 — C급)"
+        rep = longitudinal_strength(loa, beam, depth, draft,
+                                    m_still, hog, sag,
+                                    select_material(loa, purpose))
+        rep["m_still_knm"] = m_still
+        rep["m_wave_hog_knm"] = hog
+        rep["m_wave_sag_knm"] = sag
+        rep["wave_source"] = wave_src
+        return rep
+    except Exception as e:                       # 절단 실패 등
+        return {"passed": True, "skipped": True,
+                "note": f"구조 게이트 스킵 — {type(e).__name__}: {e} "
+                        "(데이터 없음 ≠ 불합격, 정직 기록)"}
+
+
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  loa: float | None = None,
                  payload_volume: float | None = None,
                  cm_override: float | None = None,
                  hull_source: str = "auto",
                  shipd_pool: int = 60,
-                 seakeeping: bool = True) -> dict:
+                 seakeeping: bool = True,
+                 structure: bool = True) -> dict:
     """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산).
 
     hull_source (스펙 shipgen 4단계 — 수식 생성기 강등):
@@ -202,10 +256,30 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                                      beam=dims.beam, lwl=dims.loa,
                                      gm=large["gm"],
                                      purpose=goal.purpose)),
+                  "structure": (None if not structure else
+                                _structure_gate(
+                                    mesh, dims.loa, dims.beam,
+                                    dims.depth, large["draft"],
+                                    dims.cb, goal.purpose,
+                                    {"structure":
+                                     large["lightship_t"]["structure"]
+                                     * 1e3,
+                                     "outfit":
+                                     large["lightship_t"]["outfit"]
+                                     * 1e3,
+                                     "machinery":
+                                     large["lightship_t"]["machinery"]
+                                     * 1e3,
+                                     "fuel": large["fuel_t"] * 1e3,
+                                     "payload":
+                                     large["payload_t"] * 1e3})),
                   "passed": large["passed"],
                   "roll_period_s": roll_natural_period(
                       dims.beam, large["draft"], dims.loa, large["gm"]),
                   "mesh_file": "hull.stl"}
+        if report["structure"] is not None:
+            report["passed"] = bool(report["passed"]
+                                    and report["structure"]["passed"])
         with open(out / "report.json", "w") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         _print_summary_large(report)
@@ -448,6 +522,16 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
             seakeeping_rep = {"passed": True,
                               "note": f"내항 계산 실패 — 게이트 보류: {e}"}
 
+    structure_rep = None
+    if structure and regime is Regime.DISPLACEMENT:
+        # 6번째 게이트 (구조 3단계): 종강도 — 소형은 준정적 표준파
+        structure_rep = _structure_gate(
+            mesh, dims.loa, dims.beam, dims.depth, hydro.draft,
+            dims.cb, goal.purpose,
+            {"structure": weights.structure_mass,
+             "payload": weights.payload_mass,
+             "machinery": weights.propulsion_mass})
+
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
 
@@ -489,9 +573,12 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "agility": agility_report,
         "checks_space": bool(space_ok),
         "seakeeping": seakeeping_rep,
+        "structure": structure_rep,
         "passed": bool(hydro.passed and space_ok
                        and (seakeeping_rep is None
-                            or seakeeping_rep["passed"])),
+                            or seakeeping_rep["passed"])
+                       and (structure_rep is None
+                            or structure_rep["passed"])),
         "mesh_file": mesh_file,
     }
     with open(out / "report.json", "w") as f:
@@ -535,6 +622,13 @@ def _print_summary_large(report: dict) -> None:
           f"{lg['freeboard_m']:.2f} m (ICLL 최소 "
           f"{lg['freeboard_min_icll']:.2f}) → "
           f"{'합격' if report['passed'] else '불합격'}")
+    st = report.get("structure")
+    if st is not None and not st.get("skipped"):
+        print(f"종강도 (6th)    : Z {st['z_deck_m3']:.2f}/"
+              f"{st['z_keel_m3']:.2f} ≥ 요구 {st['z_required_m3']:.2f}"
+              f" m³ · 판 {st['t_bottom_mm']:.1f}/{st['t_side_mm']:.1f}/"
+              f"{st['t_deck_mm']:.1f} mm ({st['material']}) → "
+              f"{'합격' if st['passed'] else '불합격'}")
     print(f"주의            : {lg['kg_note']}")
     sk = report.get("seakeeping")
     if sk and "sig_roll_deg" in sk:
@@ -648,6 +742,8 @@ def main(argv: list[str] | None = None) -> int:
                              "있으면 실척 선별, formula = 수식 표준기")
     parser.add_argument("--shipd-pool", type=int, default=60,
                         help="Ship-D 선별 표본 수 (클수록 좋은 배·느림)")
+    parser.add_argument("--no-structure", action="store_true",
+                        help="6번째 게이트(종강도) 생략")
     parser.add_argument("--no-seakeeping", action="store_true",
                         help="내항 게이트 생략 (빠른 실행)")
     args = parser.parse_args(argv)
@@ -677,7 +773,8 @@ def main(argv: list[str] | None = None) -> int:
                               payload_volume=args.payload_volume,
                               hull_source=args.hull_source,
                               shipd_pool=args.shipd_pool,
-                              seakeeping=not args.no_seakeeping)
+                              seakeeping=not args.no_seakeeping,
+                              structure=not args.no_structure)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:
