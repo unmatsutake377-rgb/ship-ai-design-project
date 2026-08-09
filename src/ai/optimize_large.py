@@ -158,3 +158,41 @@ def optimize_large(payload_kg: float = 8_000_000.0,
               f"{stats['gate']} / 오류 {stats['error']} / 생존 "
               f"{stats['alive']}")
     return df
+
+
+def full_recheck(vector_json: str, speed_ms: float,
+                 payload_kg: float, target_loa: float) -> dict:
+    """전선 대표 설계 전체 8중 재검 — fast에서 생략한 내항·조종
+    게이트 추가 (지도 2단 구도의 NSGA판)."""
+    from data import shipd_loader
+    from src.physics.holtrop import holtrop_input_from_mesh
+    from src.physics.seakeeping.criteria import seakeeping_gate
+    from src.pipeline import _maneuvering_gate
+    from src.pipeline_large import design_spiral_large, dims_from_shipd_mesh
+
+    v45 = np.asarray(json.loads(vector_json), float)
+    fast = evaluate_large_vector(v45, speed_ms, payload_kg, target_loa)
+    if fast is None:
+        return {"passed": False, "note": "fast 게이트 재현 실패"}
+    mesh = shipd_loader.scaled_mesh(v45, target_loa)
+    h0 = holtrop_input_from_mesh(mesh, target_loa,
+                                 float(mesh.bounds[1][2]) / 1.6)
+    dims = dims_from_shipd_mesh(mesh, target_loa, h0.cb)
+    goal = GoalSpec(target_speed_ms=speed_ms, payload_kg=payload_kg,
+                    purpose="cargo")
+    large = design_spiral_large(mesh, dims, goal)
+    sk = seakeeping_gate(mesh, large["draft"],
+                         large["total_t"] * 1000.0,
+                         large["total_t"] * 1000.0
+                         * (0.25 * dims.loa) ** 2,
+                         beam=dims.beam, lwl=dims.loa,
+                         gm=large["gm"], purpose="cargo")
+    mv = _maneuvering_gate(
+        dims.loa, dims.beam, large["draft"], dims.cb,
+        large["total_t"] * 1000.0 / 1025.0,
+        large["propeller"]["diameter"], large["resistance"]["total"],
+        speed_ms, large["propeller"]["ear"], large["propeller"]["z"],
+        large["propeller"]["pitch_ratio"])
+    passed = bool(fast is not None and sk["passed"] and mv["passed"])
+    return {**fast, "seakeeping": sk, "maneuvering": mv,
+            "passed": passed}
