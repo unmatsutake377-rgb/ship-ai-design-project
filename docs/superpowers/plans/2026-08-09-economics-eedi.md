@@ -183,3 +183,22 @@ git commit -m "feat: EEDI 정본 — 기준선·Phase3 감축·attained 손계�
 ```
 
 worklog에 1단계 성적표 (원전 3건 인덱스·손계산 앵커·첫 판정) 기록, 스펙 §3에 원전 인덱스 보강, 커밋·푸시 후 오너 보고.
+
+---
+
+### Task 2 (2단계): `opex.py` — 운항 경제 + 소형 전기 등가
+
+**Files:**
+- Create: `src/physics/economics/opex.py`
+- Test: `tests/test_opex.py`
+
+**Interfaces:**
+- Produces:
+  - `annual_fuel(p_service_kw, sfoc_g_per_kwh, hours_per_year=6000.0) -> dict` — `fuel_t_per_year`
+  - `fuel_opex(p_service_kw, sfoc, v_service_ms, dwt_t, bunker_usd_per_t=600.0, hours_per_year=6000.0) -> dict` — `fuel_t_per_year, fuel_cost_usd_per_year, distance_nm_per_year, transport_usd_per_tnm` (만재·가동률 단순화 정직 표기)
+  - `electric_transport(p_electric_w, v_ms, payload_kg, elec_usd_per_kwh=0.15) -> dict` — `wh_per_kg_km, usd_per_kg_km` (소형 전기 등가 — 규제 아님)
+  - 상수: `BUNKER_USD_PER_T_BAND = (450.0, 750.0)` VLSFO 대역 C급, `ELEC_USD_PER_KWH_BAND = (0.10, 0.25)` 산업용 C급 — 민감도 병기용
+- 앵커: ① 연료 손계산 (P·SFOC·시간 단위 사슬) ② 수송 단가 손계산 ③ 전기 Wh/(kg·km) 손계산 ④ 감속 → t·nm당 연료 단조 감소 (V² 성질)
+- 성적표: 8000t 화물선 속도 지도 (13.6→10.7 kn) — EEDI 판정 × 연간 연료비 × 수송 단가 3열 (속도 vs 규제 vs 운임 긴장 실증)
+
+수순: 시험 → FAIL → 구현 → PASS → 커밋 → worklog 성적표.
