@@ -46,6 +46,13 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
     if not large["passed"]:
         return None
 
+    from src.physics.cargo_capacity import space_gate_large
+    sp = space_gate_large(mesh, dims.depth, dims.loa,
+                          fuel_t=large["fuel_t"],
+                          payload_t=large["payload_t"])
+    if not sp["passed"]:
+        return None
+
     st = _structure_gate(
         mesh, dims.loa, dims.beam, dims.depth, large["draft"],
         dims.cb, "cargo",
@@ -76,6 +83,8 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
         "fuel_cost_usd_per_year": ec["fuel_cost_usd_per_year"],
         "transport_usd_per_tnm": ec["transport_usd_per_tnm"],
         "t_bottom_mm": st["t_bottom_mm"],
+        "hold_m3": sp["hold_m3"],
+        "hold_margin": sp["margin_ratio"],
     }
 
 

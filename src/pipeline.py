@@ -407,6 +407,12 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                                      beam=dims.beam, lwl=dims.loa,
                                      gm=large["gm"],
                                      purpose=goal.purpose)),
+                  "space_large": __import__(
+                      "src.physics.cargo_capacity",
+                      fromlist=["space_gate_large"]).space_gate_large(
+                          mesh, dims.depth, dims.loa,
+                          fuel_t=large["fuel_t"],
+                          payload_t=large["payload_t"]),
                   "structure": (None if not structure else
                                 _structure_gate(
                                     mesh, dims.loa, dims.beam,
@@ -448,6 +454,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                   "roll_period_s": roll_natural_period(
                       dims.beam, large["draft"], dims.loa, large["gm"]),
                   "mesh_file": "hull.stl"}
+        report["passed"] = bool(report["passed"]
+                                and report["space_large"]["passed"])
         if report["structure"] is not None:
             report["passed"] = bool(report["passed"]
                                     and report["structure"]["passed"])
