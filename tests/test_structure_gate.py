@@ -37,7 +37,8 @@ def test_100m_cargo_gate_iacs(tmp_path):
     (2단계 비 1.06 실증의 게이트 판)."""
     goal = GoalSpec(target_speed_ms=7.0, payload_kg=5_000_000.0,
                     purpose="cargo")
-    report = run_pipeline(goal, tmp_path, seakeeping=False)
+    report = run_pipeline(goal, tmp_path, seakeeping=False,
+                          maneuvering=False, economics=False)
     st = report["structure"]
     assert st is not None
     if st.get("skipped"):

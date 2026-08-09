@@ -66,7 +66,9 @@ def test_pipeline_large_auto_judges(tmp_path):
 
     goal = GoalSpec(target_speed_ms=7.0, payload_kg=5_000_000.0,
                     purpose="cargo", endurance_h=240.0)
-    report = run_pipeline(goal, tmp_path, shipd_pool=16)
+    report = run_pipeline(goal, tmp_path, shipd_pool=16,
+                          economics=False)   # EEDI는 전용 시험 —
+    # 현행 순항 프리셋(13.6kn)은 Phase 3 불합격이 정답 (경제 3단계)
     assert report["hull_source"] in ("shipd", "formula")
     assert report["hull_note"] and "배" in report["hull_note"]
     assert report["passed"]
