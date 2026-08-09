@@ -679,7 +679,17 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
 
     pv, pv_basis = payload_volume_for(goal.payload_kg, goal.purpose,
                                       payload_volume)
-    if picked is not None:
+    if catamaran:
+        # 쌍동 USV 짐은 크로스데크 위 — 선체 내부 상자 검사 부적용
+        # (정직 스킵, 데크 탑재 모델은 후속 단계 백로그)
+        space_ok = True
+        maxbox_report = {
+            "volume": None, "payload_volume": pv,
+            "volume_basis": pv_basis, "margin_ratio": None,
+            "note": "쌍동 스킵 — 짐은 크로스데크 탑재 (내부 상자 "
+                    "검사 부적용, 데크 모델 후속 — 정직)",
+        }
+    elif picked is not None:
         # Ship-D 메쉬는 비수밀(갑판 열림) — largest_box의 contains
         # 검사가 0을 뱉는 그 버그 (다구획 스펙 §7). 선별 게이트가
         # 이미 검증한 다구획 절단법 결과를 정본으로 사용.
