@@ -250,8 +250,14 @@ def _economics_gate_large(mcr_kw: float, sfoc_g_per_kwh: float,
     )
     from src.physics.economics.opex import fuel_opex
     dwt = payload_t + fuel_t
-    att = attained_eedi(mcr_kw, sfoc_g_per_kwh, dwt,
+    # 판정 = EPL(기관 출력 제한) 기준 — 카탈로그 이산성으로 과대
+    # 설치된 MCR을 봉인해 EEDI 대응하는 실업계 표준 (C급 관례).
+    # MCR_lim = P_service/0.75 → P75 = P_service, Vref = 설계 속도.
+    mcr_epl = p_service_kw / 0.75
+    att = attained_eedi(min(mcr_kw, mcr_epl), sfoc_g_per_kwh, dwt,
                         v_service_ms, p_service_kw)
+    att_installed = attained_eedi(mcr_kw, sfoc_g_per_kwh, dwt,
+                                  v_service_ms, p_service_kw)
     req = required_eedi(dwt)
     ver = eedi_verdict(att["eedi_g_per_tnm"],
                        req["required_g_per_tnm"])
@@ -280,6 +286,9 @@ def _economics_gate_large(mcr_kw: float, sfoc_g_per_kwh: float,
         "cii": cii,
         "dwt_t": dwt,
         "attained_g_per_tnm": att["eedi_g_per_tnm"],
+        "attained_installed_g_per_tnm":
+            att_installed["eedi_g_per_tnm"],
+        "epl_applied": bool(mcr_epl < mcr_kw),
         "v_ref_kn": att["v_ref_kn"],
         "required_g_per_tnm": req["required_g_per_tnm"],
         "reduction_pct": req["reduction_pct"],
@@ -289,7 +298,9 @@ def _economics_gate_large(mcr_kw: float, sfoc_g_per_kwh: float,
         "fuel_cost_usd_per_year": opx["fuel_cost_usd_per_year"],
         "transport_usd_per_tnm": opx["transport_usd_per_tnm"],
         "passed": (ver["passed"] if req["applicable"] else True),
-        "note": req["note"] + "; " + opx["note"],
+        "note": req["note"] + "; " + opx["note"]
+                + "; 판정 = EPL(출력 제한) 기준 — 카탈로그 이산성 "
+                  "대응 실업계 관례 (설치 MCR 기준 병기, C급)",
     }
 
 
