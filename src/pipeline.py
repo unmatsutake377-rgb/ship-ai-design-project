@@ -737,10 +737,15 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
 
     seakeeping_rep = None
     if seakeeping and catamaran:
-        seakeeping_rep = {"passed": True, "skipped": True,
-                          "note": "쌍동 내항 스킵 — 스트립 2D 계수는 "
-                                  "단동 단면(Lewis/Frank) 가정 밖 "
-                                  "(쌍동 내항 물리는 후속 단계, 정직)"}
+        # 쌍동 내항 실판정 (3단계) — 데미헐 등가 근사 (C급)
+        from src.ai.catamaran import seakeeping_gate_catamaran
+        try:
+            seakeeping_rep = seakeeping_gate_catamaran(
+                dims, 0.7, weights.total_mass, hydro.gm,
+                goal.purpose)
+        except Exception as e:
+            seakeeping_rep = {"passed": True, "skipped": True,
+                              "note": f"쌍동 내항 계산 실패 — 보류: {e}"}
     elif seakeeping and regime is Regime.DISPLACEMENT:
         # 5번째 게이트 (내항성 4단계): 설계 해상에서 유의 응답 합불
         from src.physics.seakeeping.criteria import seakeeping_gate

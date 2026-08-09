@@ -56,3 +56,31 @@ def catamaran_resistance(dims: MainDimensions,
             "rf_n": 2.0 * r.rf, "rw_n": 2.0 * r.rw,
             "note": "선체 간 파 간섭 무시 (C급) — Molland 문헌 확보"
                     " 시 승급 (통상 s/L 대역 수 % 오차)"}
+
+
+def seakeeping_gate_catamaran(dims: MainDimensions,
+                              separation_ratio: float,
+                              total_mass: float, gm: float,
+                              purpose: str) -> dict:
+    """쌍동 내항 게이트 (3단계) — 데미헐 등가 근사.
+
+    선형계 등가: 몸통 간 유체 상호작용을 무시하면 (넓은 간격 USV
+    1차 근사, C급) 쌍동의 계수·기진·질량이 전부 데미헐×2라
+    heave·pitch RAO는 **데미헐 + 절반 질량** 문제와 동일. roll은
+    쌍동 실측 GM(평행축 — 큼)이 공진 주기를 짧게 끌어 자동 반영
+    (c 계수는 단동 IMO 관례 유지 — C급 각주)."""
+    from src.physics.hydrostatics import equilibrium_draft
+    from src.physics.seakeeping.criteria import seakeeping_gate
+
+    demi = generate_hull_mesh(demihull_dims(dims))
+    half = total_mass / 2.0
+    t_demi = equilibrium_draft(demi, half)
+    iyy = half * (0.25 * dims.loa) ** 2
+    gate = seakeeping_gate(demi, t_demi, half, iyy,
+                           beam=dims.beam, lwl=dims.loa, gm=gm,
+                           purpose=purpose)
+    gate["note"] = ("쌍동 데미헐 등가 (상호작용 무시 C급) — "
+                    "heave·pitch = 데미헐+절반질량 동일성, roll = "
+                    "쌍동 실측 GM·단동 c계수; "
+                    + gate.get("note", ""))
+    return gate

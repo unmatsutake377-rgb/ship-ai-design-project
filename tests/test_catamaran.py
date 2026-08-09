@@ -106,3 +106,44 @@ def test_pipeline_catamaran_e2e(tmp_path):
     assert report["hydrostatics"]["gm"] > 0.2   # 쌍동 강복원
     assert report["resistance"]["total"] > 0
     assert "간섭" in report["catamaran"]["note"]
+
+
+def test_catamaran_seakeeping_gate():
+    """쌍동 내항 실판정 — 데미헐 등가 (상호작용 무시 C급).
+
+    선형계 등가: 계수·기진·질량 전부 ×2 → heave·pitch RAO는
+    '데미헐 + 절반 질량' 문제와 동일. roll은 쌍동 실측 GM →
+    공진 주기 단축 자동."""
+    from src.ai.catamaran import seakeeping_gate_catamaran
+    from src.ai.dimension_estimator import estimate_dimensions
+    from src.core.types import GoalSpec
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=50.0,
+                    purpose="survey")
+    dims = estimate_dimensions(goal)
+    r = seakeeping_gate_catamaran(dims, separation_ratio=0.7,
+                                  total_mass=60.0, gm=0.32,
+                                  purpose="survey")
+    assert not r.get("skipped")
+    assert r["sig_roll_deg"] >= 0
+    assert "데미헐" in r["note"]
+
+
+def test_catamaran_roll_period_shorter():
+    """물리 방향 — 쌍동 GM(큼) → roll 공진 주기 < 단동."""
+    from src.physics.seakeeping.criteria import roll_natural_period
+    t_mono = roll_natural_period(0.93, 0.12, 1.2, 0.16)
+    t_cat = roll_natural_period(0.93, 0.12, 1.2, 0.32)
+    assert t_cat < t_mono
+
+
+def test_pipeline_catamaran_seakeeping_real(tmp_path):
+    """e2e — 쌍동 내항이 스킵 아닌 실판정 (3단계 승격)."""
+    from src.core.types import GoalSpec
+    from src.pipeline import run_pipeline
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=50.0,
+                    purpose="survey")
+    report = run_pipeline(goal, tmp_path, hull_source="formula",
+                          structure=False, catamaran=True)
+    sk = report["seakeeping"]
+    assert sk is not None and not sk.get("skipped")
+    assert "sig_roll_deg" in sk
