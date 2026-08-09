@@ -1,0 +1,75 @@
+"""쌍동선 1단계 — 평행축·실선·저항 항등식 앵커 (스펙 2026-08-10)."""
+import numpy as np
+import pytest
+import trimesh
+
+RHO = 1025.0
+
+
+def test_parallel_axis_hand_calc():
+    """평행축 손계산 — 상자 데미헐 2개 (각 L10×b1, 간격 s=4):
+    I_T = 2×(L·b³/12 + L·b·(s/2)²) = 2×(0.833 + 40) = 81.67 m⁴.
+
+    병합 메쉬의 waterplane_properties가 이 값을 실측해야 함
+    (기존 정역학이 쌍동을 자동 지원하는지 — 1단계 심장)."""
+    from src.physics.hydrostatics import waterplane_properties
+    demi = trimesh.creation.box(extents=[10.0, 1.0, 2.0])
+    left = demi.copy()
+    left.apply_translation([0, -2.0, 0])
+    right = demi.copy()
+    right.apply_translation([0, +2.0, 0])
+    cat = trimesh.util.concatenate([left, right])
+    area, ixx = waterplane_properties(cat, 0.0)   # 중앙 수선
+    assert area == pytest.approx(2 * 10.0 * 1.0, rel=0.01)
+    expected = 2.0 * (10.0 * 1.0 ** 3 / 12.0 + 10.0 * 1.0 * 2.0 ** 2)
+    assert ixx == pytest.approx(expected, rel=0.01)
+
+
+def test_catamaran_mesh_and_gm_monotonic():
+    """생성기 관통 + 간격 단조: s↑ → GM↑ (평행축 방향)."""
+    from src.ai.catamaran import generate_catamaran_mesh
+    from src.ai.dimension_estimator import estimate_dimensions
+    from src.core.types import GoalSpec
+    from src.physics.hydrostatics import evaluate
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=50.0,
+                    purpose="survey")
+    dims = estimate_dimensions(goal)
+    gms = []
+    for ratio in (0.5, 0.8):
+        mesh = generate_catamaran_mesh(dims, separation_ratio=ratio)
+        assert mesh.is_watertight or len(mesh.faces) > 100
+        h = evaluate(mesh, 60.0, kg=dims.depth * 0.5,
+                     beam=dims.beam, depth=dims.depth)
+        gms.append(h.gm)
+    assert gms[1] > gms[0] > 0.0
+
+
+def test_blueboat_scale_sanity():
+    """BlueBoat급 (L 1.2·전폭 0.93 — 실선 L/B 1.29 계보) —
+    흘수·GM 자릿수 sanity (얕은 흘수·강복원)."""
+    from src.ai.catamaran import generate_catamaran_mesh
+    from src.core.types import MainDimensions
+    from src.physics.hydrostatics import evaluate
+    dims = MainDimensions(loa=1.2, beam=0.93, depth=0.25,
+                          draft_design=0.12, cb=0.45)
+    mesh = generate_catamaran_mesh(dims, separation_ratio=0.75)
+    h = evaluate(mesh, 15.0, kg=0.15, beam=dims.beam,
+                 depth=dims.depth)
+    assert 0.03 < h.draft < 0.25          # 얕은 흘수 자릿수
+    assert h.gm > 0.3                     # 쌍동 강복원 (단동 대비 큼)
+
+
+def test_resistance_twice_demihull():
+    """저항 항등식 — 쌍동 저항 = 데미헐 단동 저항 × 2
+    (간섭 무시 C급, 스펙 §2)."""
+    from src.ai.catamaran import catamaran_resistance
+    from src.ai.dimension_estimator import estimate_dimensions
+    from src.core.types import GoalSpec
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=50.0,
+                    purpose="survey")
+    dims = estimate_dimensions(goal)
+    r = catamaran_resistance(dims, separation_ratio=0.7,
+                             draft=dims.draft_design, speed_ms=1.5)
+    assert r["total_n"] == pytest.approx(2.0 * r["demihull_n"],
+                                         rel=1e-9)
+    assert "간섭" in r["note"]
