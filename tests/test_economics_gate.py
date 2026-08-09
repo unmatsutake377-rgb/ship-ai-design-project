@@ -20,6 +20,11 @@ def test_large_cargo_economics_gate(tmp_path):
     assert ec["applicable"] is True          # DWT 8000 ≥ 3000
     assert ec["attained_g_per_tnm"] > 0
     assert ec["fuel_cost_usd_per_year"] > 0
+    # CII 병기 (운항 성적표 — 게이트 아님)
+    cii = ec["cii"]
+    assert cii["rating_2026"] in "ABCDE"
+    assert len(cii["outlook"]) == 4
+    assert cii["aer_g_per_dwt_nm"] > 0
     # 판정과 전체 passed 합성
     if not ec["passed"]:
         assert report["passed"] is False

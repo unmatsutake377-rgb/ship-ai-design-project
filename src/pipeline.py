@@ -256,8 +256,28 @@ def _economics_gate_large(mcr_kw: float, sfoc_g_per_kwh: float,
     ver = eedi_verdict(att["eedi_g_per_tnm"],
                        req["required_g_per_tnm"])
     opx = fuel_opex(p_service_kw, sfoc_g_per_kwh, v_service_ms, dwt)
+    from src.physics.economics.cii import (
+        attained_aer,
+        cii_outlook,
+        cii_rating,
+        required_cii,
+    )
+    aer = attained_aer(opx["fuel_t_per_year"], dwt,
+                       opx["distance_nm_per_year"])
+    req_cii = required_cii(dwt, 2026)
+    rating = cii_rating(aer["aer_g_per_dwt_nm"],
+                        req_cii["required_g_per_dwt_nm"])
+    cii = {
+        "aer_g_per_dwt_nm": aer["aer_g_per_dwt_nm"],
+        "required_2026_g_per_dwt_nm": req_cii["required_g_per_dwt_nm"],
+        "rating_2026": rating["rating"],
+        "outlook": cii_outlook(aer["aer_g_per_dwt_nm"], dwt),
+        "note": "운항 지표 — 게이트 아님 (성적표)·설계 속도 만재 "
+                "가동 가정; " + rating["note"],
+    }
     return {
         "kind": "eedi",
+        "cii": cii,
         "dwt_t": dwt,
         "attained_g_per_tnm": att["eedi_g_per_tnm"],
         "v_ref_kn": att["v_ref_kn"],
