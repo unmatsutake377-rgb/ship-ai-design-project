@@ -330,7 +330,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  seakeeping: bool = True,
                  structure: bool = True,
                  maneuvering: bool = True,
-                 economics: bool = True) -> dict:
+                 economics: bool = True,
+                 catamaran: bool = False) -> dict:
     """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산).
 
     hull_source (스펙 shipgen 4단계 — 수식 생성기 강등):
@@ -594,6 +595,31 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
 
             def resistance_fn(m_, d_, s_, w_=None):
                 return total_resistance_mesh(m_, dims.loa, d_, s_)
+        elif catamaran:
+            # 쌍동 갈래 (2단계, 스펙 2026-08-10): 데미헐 병합 메쉬,
+            # 저항 = 데미헐 메쉬형 Michell × 2 (간섭 무시 C급),
+            # GM/B 상한 해제 (쌍동 과복원 = 정상 — 평행축)
+            from src.ai.catamaran import (
+                demihull_dims,
+                generate_catamaran_mesh,
+            )
+            from src.physics.hydrostatics import StabilityCriteria
+            from src.physics.resistance import total_resistance_mesh
+            mesh = generate_catamaran_mesh(dims, separation_ratio=0.7)
+            _demi = demihull_dims(dims)
+
+            def resistance_fn(m_, d_, s_, w_=None):
+                import dataclasses as _dc
+                from src.ai.hull_generator import generate_hull_mesh                     as _g
+                r1 = total_resistance_mesh(_g(_demi), dims.loa, d_, s_)
+                return _dc.replace(
+                    r1, rf=2.0 * r1.rf, rw=2.0 * r1.rw,
+                    total=2.0 * r1.total,
+                    effective_power=2.0 * r1.effective_power)
+
+            criteria = StabilityCriteria(gm_over_beam=(0.04, 10.0))
+            spiral_kw = {}
+            n_exp, m_exp = None, None      # 계수 추정은 메쉬 경로
         else:
             hull_cm = cm_for_purpose(goal.purpose, cm_override)
             hull_lcb = lcb_for_purpose(goal.purpose)  # 비대칭 기본 (08-05)
@@ -700,7 +726,12 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                               "외삽 (이중 외삽) — 경고 표기용, 필터 아님"}
 
     seakeeping_rep = None
-    if seakeeping and regime is Regime.DISPLACEMENT:
+    if seakeeping and catamaran:
+        seakeeping_rep = {"passed": True, "skipped": True,
+                          "note": "쌍동 내항 스킵 — 스트립 2D 계수는 "
+                                  "단동 단면(Lewis/Frank) 가정 밖 "
+                                  "(쌍동 내항 물리는 후속 단계, 정직)"}
+    elif seakeeping and regime is Regime.DISPLACEMENT:
         # 5번째 게이트 (내항성 4단계): 설계 해상에서 유의 응답 합불
         from src.physics.seakeeping.criteria import seakeeping_gate
         try:
@@ -753,9 +784,14 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "froude_volumetric": froude_volumetric(goal.target_speed_ms, volume_est),
         "max_displacement_speed": vmax,
         "max_semi_speed": max_semi_speed(dims.loa),
-        "hull_family": {"SEMI_DISPLACEMENT": "transom",
-                        "PLANING": "planing_deadrise"}.get(
-            regime.name, "shipd" if picked is not None else "wigley"),
+        "hull_family": ("catamaran" if catamaran else
+                        {"SEMI_DISPLACEMENT": "transom",
+                         "PLANING": "planing_deadrise"}.get(
+            regime.name, "shipd" if picked is not None else "wigley")),
+        "catamaran": ({"separation_ratio": 0.7,
+                       "note": "쌍동 1~2단계 — 저항 간섭 무시 (C급)·"
+                               "내항 스트립 단동 단면 가정 밖 스킵"}
+                      if catamaran else None),
         "weights": dataclasses.asdict(weights),
         "hydrostatics": dataclasses.asdict(hydro),
         "resistance": dataclasses.asdict(resist),
@@ -949,6 +985,8 @@ def main(argv: list[str] | None = None) -> int:
                              "있으면 실척 선별, formula = 수식 표준기")
     parser.add_argument("--shipd-pool", type=int, default=60,
                         help="Ship-D 선별 표본 수 (클수록 좋은 배·느림)")
+    parser.add_argument("--catamaran", action="store_true",
+                        help="쌍동선(카타마란) 선형 (배수량 소형)")
     parser.add_argument("--no-economics", action="store_true",
                         help="8번째 게이트(EEDI·경제) 생략")
     parser.add_argument("--no-maneuvering", action="store_true",
@@ -987,7 +1025,8 @@ def main(argv: list[str] | None = None) -> int:
                               seakeeping=not args.no_seakeeping,
                               structure=not args.no_structure,
                               maneuvering=not args.no_maneuvering,
-                              economics=not args.no_economics)
+                              economics=not args.no_economics,
+                              catamaran=args.catamaran)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:

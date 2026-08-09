@@ -73,3 +73,36 @@ def test_resistance_twice_demihull():
     assert r["total_n"] == pytest.approx(2.0 * r["demihull_n"],
                                          rel=1e-9)
     assert "간섭" in r["note"]
+
+
+def test_station_area_catamaran_generalized():
+    """스캔라인 일반화 — 쌍동 단면(폐곡선 2개)의 면적 = 데미헐×2.
+
+    현행 max-y 방식은 한쪽 몸통만 읽어 부력 절반 오독 — 짝수 교차
+    구간 합산으로 수리 (단동 결과는 불변이어야 함)."""
+    from src.physics.structure.loads import station_area
+    demi = trimesh.creation.box(extents=[10.0, 1.0, 2.0])
+    left = demi.copy(); left.apply_translation([0, -2.0, 0])
+    right = demi.copy(); right.apply_translation([0, +2.0, 0])
+    cat = trimesh.util.concatenate([left, right])
+    a_cat = station_area(cat, 0.0, 0.0)      # 흘수 1 m (z -1~0)
+    assert a_cat == pytest.approx(2.0 * 1.0 * 1.0, rel=0.02)
+    # 단동 회귀 불변
+    mono = trimesh.creation.box(extents=[10.0, 4.0, 2.0])
+    a_mono = station_area(mono, 0.0, 0.0)
+    assert a_mono == pytest.approx(4.0 * 1.0, rel=0.02)
+
+
+def test_pipeline_catamaran_e2e(tmp_path):
+    """파이프라인 쌍동 관통 — BlueBoat급 조사선."""
+    from src.core.types import GoalSpec
+    from src.pipeline import run_pipeline
+    goal = GoalSpec(target_speed_ms=1.5, payload_kg=50.0,
+                    purpose="survey")
+    report = run_pipeline(goal, tmp_path, hull_source="formula",
+                          seakeeping=False, structure=False,
+                          catamaran=True)
+    assert report["hull_family"] == "catamaran"
+    assert report["hydrostatics"]["gm"] > 0.2   # 쌍동 강복원
+    assert report["resistance"]["total"] > 0
+    assert "간섭" in report["catamaran"]["note"]

@@ -69,10 +69,12 @@ def station_area(mesh, x: float, waterline_z: float,
                  nz: int = 60) -> float:
     """스테이션 x, 수선 z 아래 몰수 단면적 [m²].
 
-    수평 스캔라인: 각 z에서 단면 윤곽 변과의 교차 y 최대값 =
-    반폭 (대칭 선체). 점 보간 방식(sections.station_geometry)과
-    달리 성긴 폴리곤(상자)·수평 변에도 강건 — Lewis 제약 없음,
-    벌브·선수미 단면도 셈."""
+    수평 스캔라인 — **짝수 교차 규칙 일반화** (2026-08-10 쌍동
+    2단계): 각 z에서 윤곽 변과의 교차 y들을 정렬해 (y₁,y₂),(y₃,y₄)…
+    구간 폭 합산. 단동 대칭 선체는 기존 max-y 방식과 동일 결과,
+    쌍동(폐곡선 2개)은 두 몸통 폭이 정확히 합산됨 (구 방식은 한쪽
+    데미헐만 읽어 부력 절반 오독 — 시험이 검거). 성긴 폴리곤·수평
+    변에 강건, Lewis 제약 없음."""
     sec = mesh.section(plane_origin=[float(x), 0, 0],
                        plane_normal=[1, 0, 0])
     if sec is None or not len(sec.entities):
@@ -87,18 +89,22 @@ def station_area(mesh, x: float, waterline_z: float,
     if not edges or waterline_z - z_keel < 1e-6:
         return 0.0
     zs = np.linspace(z_keel + 1e-6, waterline_z - 1e-9, nz)
-    halves = np.zeros(nz)
-    for y0, z0, y1, z1 in edges:
-        zlo, zhi = min(z0, z1), max(z0, z1)
-        if zhi - zlo < 1e-12:
-            continue                           # 수평 변 — 교차 무의미
-        hit = (zs >= zlo) & (zs <= zhi)
-        if not np.any(hit):
+    widths = np.zeros(nz)
+    for i, z in enumerate(zs):
+        ys = []
+        for y0, z0, y1, z1 in edges:
+            zlo, zhi = min(z0, z1), max(z0, z1)
+            if zhi - zlo < 1e-12 or not (zlo <= z <= zhi):
+                continue                       # 수평 변·비교차
+            t = (z - z0) / (z1 - z0)
+            ys.append(y0 + t * (y1 - y0))
+        if len(ys) < 2:
             continue
-        t = (zs[hit] - z0) / (z1 - z0)
-        ys = y0 + t * (y1 - y0)
-        halves[hit] = np.maximum(halves[hit], ys)
-    return 2.0 * float(np.trapezoid(halves, zs))
+        ys.sort()
+        n_pairs = len(ys) // 2
+        widths[i] = sum(ys[2 * k + 1] - ys[2 * k]
+                        for k in range(n_pairs))
+    return float(np.trapezoid(widths, zs))
 
 
 @dataclass(frozen=True)
