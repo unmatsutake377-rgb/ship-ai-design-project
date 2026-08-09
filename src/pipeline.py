@@ -177,7 +177,12 @@ def _maneuvering_gate(loa: float, beam: float, draft: float,
 
     MMG 계수 추정 (Kijima+Yoshimura 회귀) → 표준 시험 (35° 선회·
     지그재그) → IMO MSC.137(76) 판정 (L ≥ 100 m — 범위 밖은
-    성적표만). 회귀 대역 밖 소형(Cb<0.51)은 정직 스킵."""
+    성적표만). 정직 스킵 2종: Cb<0.40 (외삽 한계) · L<20 m (상선
+    회귀 무의미 — 소형은 기존 민첩성 지표 담당)."""
+    if loa < 20.0:
+        return {"passed": True, "skipped": True, "applicable": False,
+                "note": "조종 게이트 스킵 — L<20 m 소형은 상선 MMG "
+                        "회귀 밖 (기존 민첩성 지표 담당, 정직)"}
     from src.physics.maneuvering.criteria import (
         maneuvering_gate,
         maneuvering_report,

@@ -70,13 +70,29 @@ def test_kvlcc2_estimated_vs_true_turning():
 
 
 def test_small_craft_honest_rejection():
-    """Cb < 0.51 (소형 USV) = 회귀 대역 밖 정직 거절."""
+    """Cb < 0.40 = 외삽 한계 밖 정직 거절 (경계 0.51→0.40 확장,
+    2026-08-10 마지막 각주 해소)."""
     from src.physics.maneuvering.estimation import (
         EstimationRangeError,
         estimate_mmg_coeffs,
     )
     with pytest.raises(EstimationRangeError):
-        estimate_mmg_coeffs(loa=3.0, beam=1.2, draft=0.3, cb=0.45,
+        estimate_mmg_coeffs(loa=3.0, beam=1.2, draft=0.3, cb=0.35,
                             displacement_m3=0.5, xg=0.0, dp=0.2,
                             hr=0.3, ar=0.02, w_p0=0.1, t_p=0.1,
                             k0=0.3, k1=0.27, k2=-0.14)
+
+
+def test_slender_extrapolation_band():
+    """Cb 0.44 (NSGA 전선 대역) = 슬렌더 외삽 C급 — 계수 부호
+    건강 (Y'v<0·N'v<0·γR>0)."""
+    from src.physics.maneuvering.estimation import estimate_mmg_coeffs
+    co, notes = estimate_mmg_coeffs(
+        loa=115.7, beam=18.0, draft=6.5, cb=0.44,
+        displacement_m3=6000.0, xg=0.0, dp=4.0, hr=5.5,
+        ar=13.9, w_p0=0.25, t_p=0.20,
+        k0=0.2931, k1=0.2753, k2=-0.1385)
+    assert notes["band"] == "extrapolated_slender"
+    assert notes["grade"] == "C"
+    assert co.yv < 0 and co.nv < 0
+    assert co.gamma_r_plus > 0

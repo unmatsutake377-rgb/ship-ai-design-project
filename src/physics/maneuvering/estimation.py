@@ -16,7 +16,11 @@ references/Yoshimura_MMG_database.pdf, 저자 공식 researchmap 배포):
 적용 대역 (원전 p9): L/B 2.6~7.1, d/B 0.25~0.46, Cb 0.51~0.65.
 - Cb 0.65~0.85 (풀선형): 선형은 유효(원전 명시), 비선형·상호작용은
   외삽 — C급 정직 표기 (notes["band"]="extrapolated_full")
-- Cb < 0.51 (소형 USV 등): 정직 거절 (EstimationRangeError)
+- Cb 0.40~0.51 (슬렌더 — NSGA 전선 대역): 완만 외삽 C급
+  (notes["band"]="extrapolated_slender") — Kijima 선형은 반이론
+  (0.5πk 저종횡비 날개 항)이라 연속, 풀선형 반대편 외삽이 자기
+  대조 비 1.02로 관용성 실증 (2026-08-10 확장, 마지막 각주 해소)
+- Cb < 0.40: 정직 거절 (EstimationRangeError)
 부가질량 m'x·m'y·J'z: Motora 계보 미확보 — KVLCC2 실측 무차원값
 (0.022/0.223/0.011)을 대표값으로 채용 (C급, 자릿수 목적).
 C1·C2 반류 변화도 KVLCC2 값 (C급).
@@ -48,12 +52,14 @@ def estimate_mmg_coeffs(loa: float, beam: float, draft: float,
     """치수·풍만도 → MMGCoeffs + 등급 노트."""
     lb = loa / beam
     db = draft / beam
-    if cb < 0.51:
+    if cb < 0.40:
         raise EstimationRangeError(
-            f"Cb {cb:.2f} < 0.51 — Yoshimura 회귀 대역 밖 (소형·"
-            "날씬 선형). 조종 성적표는 기존 민첩성 지표로.")
-    if cb <= 0.65 and 2.6 <= lb <= 7.1 and 0.25 <= db <= 0.46:
+            f"Cb {cb:.2f} < 0.40 — 회귀 외삽 한계 밖 (소형·극날씬"
+            " 선형). 조종 성적표는 기존 민첩성 지표로.")
+    if 0.51 <= cb <= 0.65 and 2.6 <= lb <= 7.1 and 0.25 <= db <= 0.46:
         band = "in"
+    elif cb < 0.51:
+        band = "extrapolated_slender"
     else:
         band = "extrapolated_full"
 
@@ -102,13 +108,18 @@ def estimate_mmg_coeffs(loa: float, beam: float, draft: float,
         f_alpha=fujii_lift_gradient(hr, ar),
         gamma_r_plus=gamma, gamma_r_minus=gamma,
         ell_r_p=-0.9)
+    band_note = {
+        "in": "Yoshimura 회귀 대역 내",
+        "extrapolated_full": "풀선형 외삽 — 선형 Kijima 유효(원전 "
+                             "명시), 비선형·상호작용 C급",
+        "extrapolated_slender": "슬렌더 외삽 (Cb 0.40~0.51) — 반이론"
+                                " 선형식 연속 외삽 C급, 자기 대조"
+                                " 관용성 계보",
+    }
     notes = {
         "band": band,
         "grade": "B" if band == "in" else "C",
-        "note": ("Yoshimura 회귀 대역 내"
-                 if band == "in" else
-                 "풀선형 외삽 — 선형 Kijima 유효(원전 명시), "
-                 "비선형·상호작용 C급"),
+        "note": band_note[band],
         "added_mass": "KVLCC2 대표값 (C급)",
     }
     return co, notes
