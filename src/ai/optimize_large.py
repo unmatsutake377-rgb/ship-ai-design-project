@@ -5,7 +5,9 @@
 design_spiral_large → _structure_gate → _economics_gate_large.
 내항·조종은 생략 (fast) — 대표 설계만 전체 8중 재검 (지도 관례).
 
-목적 2: 수송단가 min · attained EEDI(EPL) min.
+목적 2: 수송단가 min · **속도 max** (수송 시간 가치 — 소예산
+실측에서 단가·EEDI가 연료 비례로 정렬돼 전선이 점으로 붕괴,
+"친환경=저비용" 정직 발견 후 목적 재구성). EEDI는 제약으로 유지.
 제약: 나선(GM·건현) ∧ 구조 ∧ EEDI 합격 — 사망 페널티 + 사유 집계.
 
 ⚠ Ship-D 라이선스: 전선 CSV(vector_json 포함)는 outputs/ 로컬만
@@ -121,7 +123,7 @@ def optimize_large(payload_kg: float = 8_000_000.0,
             stats["gate"] += 1
             return None
         stats["alive"] += 1
-        return (r["transport_usd_per_tnm"], r["attained_eedi"])
+        return (r["transport_usd_per_tnm"], -sp)
 
     class LargeProblem(ElementwiseProblem):
         def __init__(self):
