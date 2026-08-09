@@ -53,6 +53,23 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
     if not sp["passed"]:
         return None
 
+    # roll 프록시 (2026-08-10): 전 회차 전체 재검에서 내항이 47/50
+    # 학살 — 주범은 전 케이스 roll (수식 2개짜리 초저렴 항목).
+    # fast에 삽입해 fast·full 정합 개선. pitch·heave는 스트립 필요
+    # — full 재검 몫 유지 (정직).
+    from src.physics.seakeeping.criteria import (
+        DESIGN_SEA_STATE,
+        SEAKEEPING_LIMITS,
+        roll_natural_period,
+    )
+    from src.physics.seakeeping.waves import significant_roll_deg
+    t_roll = roll_natural_period(dims.beam, large["draft"],
+                                 dims.loa, large["gm"])
+    hs, tz = DESIGN_SEA_STATE["cargo"]
+    roll_deg = significant_roll_deg(hs, tz, t_roll)
+    if roll_deg > SEAKEEPING_LIMITS["cargo"]["roll_deg"]:
+        return None
+
     st = _structure_gate(
         mesh, dims.loa, dims.beam, dims.depth, large["draft"],
         dims.cb, "cargo",
@@ -85,6 +102,7 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
         "t_bottom_mm": st["t_bottom_mm"],
         "hold_m3": sp["hold_m3"],
         "hold_margin": sp["margin_ratio"],
+        "sig_roll_deg": roll_deg,
     }
 
 
