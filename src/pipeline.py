@@ -235,6 +235,56 @@ def _maneuvering_gate(loa: float, beam: float, draft: float,
                         "(데이터 없음 ≠ 불합격, 정직 기록)"}
 
 
+def _economics_gate_large(mcr_kw: float, sfoc_g_per_kwh: float,
+                          payload_t: float, fuel_t: float,
+                          v_service_ms: float,
+                          p_service_kw: float) -> dict:
+    """8번째 게이트 — EEDI + 운항 경제 (경제 스펙 2026-08-09 §2).
+
+    DWT ≈ 짐 + 연료 (창고품 생략 개략). DWT < 3,000 = 규제 적용
+    밖 (성적표만 — 정직)."""
+    from src.physics.economics.eedi import (
+        attained_eedi,
+        eedi_verdict,
+        required_eedi,
+    )
+    from src.physics.economics.opex import fuel_opex
+    dwt = payload_t + fuel_t
+    att = attained_eedi(mcr_kw, sfoc_g_per_kwh, dwt,
+                        v_service_ms, p_service_kw)
+    req = required_eedi(dwt)
+    ver = eedi_verdict(att["eedi_g_per_tnm"],
+                       req["required_g_per_tnm"])
+    opx = fuel_opex(p_service_kw, sfoc_g_per_kwh, v_service_ms, dwt)
+    return {
+        "kind": "eedi",
+        "dwt_t": dwt,
+        "attained_g_per_tnm": att["eedi_g_per_tnm"],
+        "v_ref_kn": att["v_ref_kn"],
+        "required_g_per_tnm": req["required_g_per_tnm"],
+        "reduction_pct": req["reduction_pct"],
+        "applicable": req["applicable"],
+        "margin_pct": ver["margin_pct"],
+        "fuel_t_per_year": opx["fuel_t_per_year"],
+        "fuel_cost_usd_per_year": opx["fuel_cost_usd_per_year"],
+        "transport_usd_per_tnm": opx["transport_usd_per_tnm"],
+        "passed": (ver["passed"] if req["applicable"] else True),
+        "note": req["note"] + "; " + opx["note"],
+    }
+
+
+def _economics_report_small(effective_power_w: float,
+                            v_service_ms: float,
+                            payload_kg: float) -> dict:
+    """소형 전기 등가 성적표 — Wh/(kg·km)·전기료 (규제 아님)."""
+    from src.physics.economics.opex import electric_transport
+    from src.physics.propulsion import PROP_EFFICIENCY
+    p_elec = effective_power_w / PROP_EFFICIENCY
+    rep = electric_transport(p_elec, v_service_ms, payload_kg)
+    return {"kind": "electric", "p_electric_w": p_elec,
+            "passed": True, "applicable": False, **rep}
+
+
 def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  loa: float | None = None,
                  payload_volume: float | None = None,
@@ -243,7 +293,8 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                  shipd_pool: int = 60,
                  seakeeping: bool = True,
                  structure: bool = True,
-                 maneuvering: bool = True) -> dict:
+                 maneuvering: bool = True,
+                 economics: bool = True) -> dict:
     """payload_volume [m³]: 짐 부피 직접 입력 (생략 시 용도별 밀도 환산).
 
     hull_source (스펙 shipgen 4단계 — 수식 생성기 강등):
@@ -354,6 +405,14 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
                                       large["propeller"]["ear"],
                                       large["propeller"]["z"],
                                       large["propeller"]["pitch_ratio"])),
+                  "economics": (None if not economics else
+                                _economics_gate_large(
+                                    large["engine"]["mcr_kw"],
+                                    large["engine"]["sfoc_g_per_kwh"],
+                                    large["payload_t"],
+                                    large["fuel_t"],
+                                    goal.target_speed_ms,
+                                    large["engine"]["brake_power_kw"])),
                   "passed": large["passed"],
                   "roll_period_s": roll_natural_period(
                       dims.beam, large["draft"], dims.loa, large["gm"]),
@@ -364,6 +423,9 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         if report["maneuvering"] is not None:
             report["passed"] = bool(report["passed"]
                                     and report["maneuvering"]["passed"])
+        if report["economics"] is not None:
+            report["passed"] = bool(report["passed"]
+                                    and report["economics"]["passed"])
         with open(out / "report.json", "w") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         _print_summary_large(report)
@@ -616,6 +678,13 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
              "payload": weights.payload_mass,
              "machinery": weights.propulsion_mass})
 
+    economics_rep = None
+    if economics:
+        # 8번째 축 — 소형은 전기 등가 성적표 (규제 아님, 정직)
+        economics_rep = _economics_report_small(
+            resist.effective_power, goal.target_speed_ms,
+            goal.payload_kg)
+
     mesh_file = "hull.stl"
     mesh.export(out / mesh_file)
 
@@ -658,6 +727,7 @@ def run_pipeline(goal: GoalSpec, out_dir: str | Path,
         "checks_space": bool(space_ok),
         "seakeeping": seakeeping_rep,
         "structure": structure_rep,
+        "economics": economics_rep,
         "passed": bool(hydro.passed and space_ok
                        and (seakeeping_rep is None
                             or seakeeping_rep["passed"])
@@ -713,6 +783,15 @@ def _print_summary_large(report: dict) -> None:
               f" m³ · 판 {st['t_bottom_mm']:.1f}/{st['t_side_mm']:.1f}/"
               f"{st['t_deck_mm']:.1f} mm ({st['material']}) → "
               f"{'합격' if st['passed'] else '불합격'}")
+    ec = report.get("economics")
+    if ec is not None and ec.get("kind") == "eedi":
+        verdict = ("합격" if ec["passed"] else "불합격") \
+            if ec["applicable"] else "성적표만"
+        print(f"EEDI (8th)      : {ec['attained_g_per_tnm']:.1f} vs "
+              f"요구 {ec['required_g_per_tnm']:.1f} g/t·nm (여유 "
+              f"{ec['margin_pct']:+.0f}%) · 연료 "
+              f"{ec['fuel_t_per_year']:.0f} t/년 "
+              f"(${ec['fuel_cost_usd_per_year'] / 1e6:.2f}M) → {verdict}")
     print(f"주의            : {lg['kg_note']}")
     sk = report.get("seakeeping")
     if sk and "sig_roll_deg" in sk:
@@ -826,6 +905,8 @@ def main(argv: list[str] | None = None) -> int:
                              "있으면 실척 선별, formula = 수식 표준기")
     parser.add_argument("--shipd-pool", type=int, default=60,
                         help="Ship-D 선별 표본 수 (클수록 좋은 배·느림)")
+    parser.add_argument("--no-economics", action="store_true",
+                        help="8번째 게이트(EEDI·경제) 생략")
     parser.add_argument("--no-maneuvering", action="store_true",
                         help="7번째 게이트(조종성) 생략")
     parser.add_argument("--no-structure", action="store_true",
@@ -861,7 +942,8 @@ def main(argv: list[str] | None = None) -> int:
                               shipd_pool=args.shipd_pool,
                               seakeeping=not args.no_seakeeping,
                               structure=not args.no_structure,
-                              maneuvering=not args.no_maneuvering)
+                              maneuvering=not args.no_maneuvering,
+                              economics=not args.no_economics)
     except (UnsupportedRegimeError, UnknownPurposeError, CbOutOfRangeError,
             SinksError, PayloadInfeasibleError, NoSuitableMotorError,
             SpiralNotConvergedError, PlaningEquilibriumError) as e:

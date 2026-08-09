@@ -97,6 +97,7 @@ def design_spiral_large(mesh, dims: MainDimensions, goal: GoalSpec):
                       "cavitation_ok": bool(prop.cavitation_ok)},
         "engine": {"name": engine.name, "mcr_kw": engine.mcr_kw,
                    "mass_t": engine.mass_t,
+                   "sfoc_g_per_kwh": engine.sfoc_g_per_kwh,
                    "load_fraction": engine.load_fraction,
                    "source_grade": engine.source_grade,
                    "brake_power_kw": prop.brake_power_kw},
