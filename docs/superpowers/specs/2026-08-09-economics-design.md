@@ -51,6 +51,21 @@ Vref: 우리 설계는 순항 속도·엔진 부하율 실산출 — 75% MCR 속
   4. 우리 100m급 화물선 첫 판정 (Phase 3)
   5. 소형 Wh/(kg·km) 손계산 (배터리 Wh·항속·짐)
 
+### §3 보강 — 원전 확보 완료 (2026-08-09, 1단계)
+
+- **MEPC.328(76)** (개정 MARPOL Annex VI, imo.org 공식, 86쪽) →
+  `references/MEPC328_76_annexvi.pdf`: p39 Table 2 기준선
+  (General cargo **a=107.48·c=0.216** — 예상 적중), p37 Table 1
+  감축률 (**이미지 렌더 판독 관례**: General cargo 15,000 DWT+
+  Phase 3 (2022-04+) = 30%, 3,000~15,000 = 0→30 선형 보간 각주,
+  <3,000 적용 밖)
+- **MEPC.364(79)** (2022 EEDI 계산 가이드라인) →
+  `references/MEPC364_79_eedi_calc.pdf`: CF 표 (MDO 3.206·HFO
+  3.114 tCO₂/t — 예상 적중), 75% MCR 관례
+- **MEPC.231(65)** (기준선 산출 방법론·선종 정의) →
+  `references/MEPC231_65_reflines.pdf`
+- Vref: 설계점 P∝V³ 역산 채택 (프로펠러 법칙 근사 — 정직 표기)
+
 ## 4. 단계 분할 (각 단계 성적표 후 계속 — 오너 "변수 없는 한
 전 단계" 관례)
 
