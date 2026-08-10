@@ -26,14 +26,21 @@ def roll_natural_period(beam: float, draft: float, lwl: float,
     return 2.0 * imo_roll_c(beam, draft, lwl) * beam / math.sqrt(gm)
 
 
-# 용도별 내항 운용 한계 (유의 진폭) — NORDFORSK 1987 일반 운용 한계
-# 계보의 개략 (C급 — 정확 표값 확보 시 승급): 계측(survey)은 엄격,
-# 작업·순찰·화물은 일반 한계.
+# 용도별 내항 운용 한계 — **RMS 정의** (NORDFORSK 1987, KTH Ocean
+# Eng. 297 (2024) Table 4 재수록 원전 대조 — 2026-08-10 승급):
+# merchant roll RMS 6°·fast small craft 4° (A급). 구판은 이 RMS
+# 값을 유의 진폭(=2×RMS)에 적용한 **2배 과엄 정의 오독** — 검거.
+# pitch: NORDFORSK 무기재 + KTH 명시 "Tasaki 계보 출처 불명" —
+# **합불 제외, 경고 표기 전용** (C급 참고값). heave는 C급 유지.
 SEAKEEPING_LIMITS = {
-    "survey":   {"roll_deg": 4.0, "pitch_deg": 2.5, "heave_over_hs": 0.8},
-    "patrol":   {"roll_deg": 6.0, "pitch_deg": 3.0, "heave_over_hs": 1.0},
-    "workboat": {"roll_deg": 6.0, "pitch_deg": 3.0, "heave_over_hs": 1.0},
-    "cargo":    {"roll_deg": 6.0, "pitch_deg": 3.0, "heave_over_hs": 1.0},
+    "survey":   {"roll_rms_deg": 4.0, "pitch_rms_warn_deg": 1.25,
+                 "heave_over_hs": 0.8},
+    "patrol":   {"roll_rms_deg": 4.0, "pitch_rms_warn_deg": 1.5,
+                 "heave_over_hs": 1.0},
+    "workboat": {"roll_rms_deg": 4.0, "pitch_rms_warn_deg": 1.5,
+                 "heave_over_hs": 1.0},
+    "cargo":    {"roll_rms_deg": 6.0, "pitch_rms_warn_deg": 1.5,
+                 "heave_over_hs": 1.0},
 }
 
 # 용도별 설계 해상 상태 (Hs[m], Tz[s]) — 운용 환경 개략 (C급):
@@ -54,15 +61,31 @@ def seakeeping_gate(mesh, draft: float, mass: float, iyy: float,
     from src.physics.seakeeping.waves import seakeeping_report
 
     hs, tz = DESIGN_SEA_STATE.get(purpose, DESIGN_SEA_STATE["survey"])
-    lim = SEAKEEPING_LIMITS.get(purpose, SEAKEEPING_LIMITS["survey"])
     rep = seakeeping_report(mesh, draft, mass, iyy, beam, lwl, gm,
                             hs, tz, n_freq=5)
+    return {**rep, **judge_seakeeping(rep, purpose, hs)}
+
+
+def judge_seakeeping(rep: dict, purpose: str, hs: float) -> dict:
+    """성적 → 합불 (RMS 정의 판정 — 원전 대조 승급 2026-08-10).
+
+    유의 진폭 ÷ 2 = RMS vs 원전 한계. pitch는 합불 제외 (계보
+    불명) — 경고 표기만."""
+    lim = SEAKEEPING_LIMITS.get(purpose, SEAKEEPING_LIMITS["survey"])
+    roll_rms = rep["sig_roll_deg"] / 2.0
+    pitch_rms = rep["sig_pitch_deg"] / 2.0
     checks = {
-        "roll": rep["sig_roll_deg"] <= lim["roll_deg"],
-        "pitch": rep["sig_pitch_deg"] <= lim["pitch_deg"],
+        "roll": roll_rms <= lim["roll_rms_deg"],
         "heave": rep["sig_heave_m"] <= lim["heave_over_hs"] * hs,
     }
-    return {**rep, "limits": lim, "checks": {k: bool(v) for k, v
-                                             in checks.items()},
+    return {"limits": lim,
+            "checks": {k: bool(v) for k, v in checks.items()},
             "passed": bool(all(checks.values())),
-            "grade_note": "기준·해상 상태 = NORDFORSK 계보 개략 (C급)"}
+            "roll_rms_deg": roll_rms, "pitch_rms_deg": pitch_rms,
+            "pitch_warning": bool(pitch_rms
+                                  > lim["pitch_rms_warn_deg"]),
+            "pitch_note": "pitch 기준 = NORDFORSK 무기재·Tasaki "
+                          "계보 출처 불명 (KTH 2024 명시) — 합불 "
+                          "제외, 경고 표기 전용 (C급)",
+            "grade_note": "roll RMS = NORDFORSK 원전 (A급, KTH "
+                          "2024 재수록)·heave C급·해상 상태 C급"}

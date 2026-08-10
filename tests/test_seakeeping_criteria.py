@@ -41,6 +41,7 @@ def test_seakeeping_gate_e2e():
     m = 1025.0 * 0.45 * 3.0 * 0.9 * 0.3
     g = seakeeping_gate(mesh, 0.3, m, m * 0.5625, beam=0.9, lwl=3.0,
                         gm=0.15, purpose="survey")
-    assert set(g["checks"]) == {"roll", "pitch", "heave"}
+    assert set(g["checks"]) == {"roll", "heave"}   # pitch = 경고 강등
+    assert "pitch_warning" in g                    # (RMS 승급 회차)
     assert isinstance(g["passed"], bool)
     assert g["sig_heave_m"] > 0 and g["roll_period_s"] > 0

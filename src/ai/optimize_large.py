@@ -67,8 +67,8 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
                                  dims.loa, large["gm"])
     hs, tz = DESIGN_SEA_STATE["cargo"]
     roll_deg = significant_roll_deg(hs, tz, t_roll)
-    if roll_deg > SEAKEEPING_LIMITS["cargo"]["roll_deg"]:
-        return None
+    if roll_deg / 2.0 > SEAKEEPING_LIMITS["cargo"]["roll_rms_deg"]:
+        return None                     # RMS 정의 (원전 승급)
 
     st = _structure_gate(
         mesh, dims.loa, dims.beam, dims.depth, large["draft"],
