@@ -183,47 +183,16 @@ def _maneuvering_gate(loa: float, beam: float, draft: float,
         return {"passed": True, "skipped": True, "applicable": False,
                 "note": "조종 게이트 스킵 — L<20 m 소형은 상선 MMG "
                         "회귀 밖 (기존 민첩성 지표 담당, 정직)"}
+    from src.physics.maneuvering.builder import mmg_ship_from_dims
     from src.physics.maneuvering.criteria import (
         maneuvering_gate,
         maneuvering_report,
     )
-    from src.physics.maneuvering.estimation import (
-        EstimationRangeError,
-        estimate_mmg_coeffs,
-        fujii_lift_gradient,
-    )
-    from src.physics.maneuvering.kvlcc2 import ShipParticulars
-    from src.physics.maneuvering.mmg import MMGShip, solve_self_propulsion
-    from src.physics.propeller import (
-        kt_kq,
-        thrust_deduction,
-        wake_fraction,
-    )
-    from src.sim_adapters.rudder import rudder_area_dnv
+    from src.physics.maneuvering.estimation import EstimationRangeError
     try:
-        ar = rudder_area_dnv(loa, beam, draft)
-        hr = math.sqrt(1.5 * ar)          # 종횡비 1.5 통상 (C급)
-        w0 = wake_fraction(cb)
-        t0 = thrust_deduction(cb)
-        # Kt(J) 2차 다항 — 우리 Wageningen B 실계수 3점 정합
-        kt0 = kt_kq(0.0, pitch_ratio, ear, z)[0]
-        kt5 = kt_kq(0.5, pitch_ratio, ear, z)[0]
-        kt1 = kt_kq(1.0, pitch_ratio, ear, z)[0]
-        k0 = kt0
-        k2 = 2.0 * (kt1 + kt0 - 2.0 * kt5)
-        k1 = kt1 - kt0 - k2
-        co, notes = estimate_mmg_coeffs(
-            loa=loa, beam=beam, draft=draft, cb=cb,
-            displacement_m3=displacement_m3, xg=0.0,
-            dp=d_prop, hr=hr, ar=ar, w_p0=w0, t_p=t0,
-            k0=k0, k1=k1, k2=k2)
-        par = ShipParticulars(
-            lpp=loa, beam=beam, draft=draft,
-            displacement_m3=displacement_m3, xg=0.0, cb=cb,
-            dp=d_prop, hr=hr, ar=ar, rho=1025.0)
-        n_p = solve_self_propulsion(par, co, speed_ms, resistance_n)
-        ship = MMGShip(par=par, co=co, r0_n=resistance_n, n_p=n_p,
-                       u0=speed_ms)
+        ship, notes = mmg_ship_from_dims(
+            loa, beam, draft, cb, displacement_m3, d_prop,
+            resistance_n, speed_ms, ear, z, pitch_ratio)
         rep = maneuvering_report(ship, speed_ms)
         gate = maneuvering_gate(rep, loa)
         return {**rep, **gate, "coeff_grade": notes["grade"],

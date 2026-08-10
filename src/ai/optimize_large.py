@@ -70,6 +70,30 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
     if roll_deg / 2.0 > SEAKEEPING_LIMITS["cargo"]["roll_rms_deg"]:
         return None                     # RMS 정의 (원전 승급)
 
+    # 조종 프록시 (2026-08-11): v3 전체 재검에서 조종이 183/183
+    # 학살 (선회지름 6.5L > IMO 5.0L) — fast의 마지막 사각지대.
+    # 정상 선회 닫힌 해법 (같은 MMG, 적분 생략 — fsolve 수십 회).
+    # 대역 밖(Cb<0.40)은 full 게이트와 동일하게 정직 통과.
+    from src.physics.maneuvering.builder import mmg_ship_from_dims
+    from src.physics.maneuvering.estimation import EstimationRangeError
+    from src.physics.maneuvering.proxy import turning_proxy
+    turn_dt = None
+    if dims.loa >= 20.0:
+        try:
+            mmg_ship, _ = mmg_ship_from_dims(
+                dims.loa, dims.beam, large["draft"], dims.cb,
+                large["total_t"] * 1000.0 / 1025.0,
+                large["propeller"]["diameter"],
+                large["resistance"]["total"], speed_ms,
+                large["propeller"]["ear"], large["propeller"]["z"],
+                large["propeller"]["pitch_ratio"])
+            tp = turning_proxy(mmg_ship, speed_ms)
+            if not tp["passed"]:
+                return None
+            turn_dt = tp["tactical_diameter_proxy_over_l"]
+        except EstimationRangeError:
+            pass                        # 대역 밖 — full과 동일 스킵
+
     st = _structure_gate(
         mesh, dims.loa, dims.beam, dims.depth, large["draft"],
         dims.cb, "cargo",
@@ -103,6 +127,7 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
         "hold_m3": sp["hold_m3"],
         "hold_margin": sp["margin_ratio"],
         "sig_roll_deg": roll_deg,
+        "turn_proxy_dt_over_l": turn_dt,
     }
 
 
