@@ -48,3 +48,14 @@ def test_drift_produces_yaw_moment():
     state = np.array([U0, -0.1, 0.0, 0.0, 0.0, 0.0])
     d = derivatives(ship, state, delta=0.0)
     assert d[2] != 0.0
+
+
+def test_self_propulsion_raises_when_resistance_exceeds_max_thrust():
+    """저항이 nP=100rps 최대 추력도 넘으면 조용한 nP≈100 대신 명시 실패.
+
+    백지 리뷰 이월 지적: 이분법 상한 hi=100.0에서도 net(hi)<0이면
+    브래킷이 근을 포함하지 않는데, 기존 코드는 이를 구분 못 하고
+    lo=hi=100 근방을 그대로 반환 — 수렴 실패를 성공으로 위장."""
+    from src.physics.maneuvering.mmg import solve_self_propulsion
+    with pytest.raises(ValueError):
+        solve_self_propulsion(KVLCC2_L7, KVLCC2_COEFFS, U0, 1e12)

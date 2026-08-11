@@ -52,6 +52,10 @@ def solve_self_propulsion(par: ShipParticulars, co: MMGCoeffs,
         t = par.rho * n_p ** 2 * par.dp ** 4 * _kt(co, j_p)
         return (1.0 - co.t_p) * t - r0_n
     lo, hi = 0.05, 100.0
+    if net(hi) < 0.0:
+        raise ValueError(
+            "자항 평형 브래킷 밖 — 저항이 최대 추력 초과 "
+            f"(nP {hi} rps)")
     for _ in range(80):
         mid = 0.5 * (lo + hi)
         if net(mid) < 0.0:

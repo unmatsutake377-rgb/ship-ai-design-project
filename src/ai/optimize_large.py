@@ -93,6 +93,9 @@ def evaluate_large_vector(vec45: np.ndarray, speed_ms: float,
             turn_dt = tp["tactical_diameter_proxy_over_l"]
         except EstimationRangeError:
             pass                        # 대역 밖 — full과 동일 스킵
+        except ValueError:
+            return None                 # 자항 브래킷 밖 = 실현불가
+            # (저항 > 최대 추력 — 게이트 사망, 오류 아님. 정직)
 
     st = _structure_gate(
         mesh, dims.loa, dims.beam, dims.depth, large["draft"],
