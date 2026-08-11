@@ -16,13 +16,21 @@ superpowers 워크플로·main 직커밋)은 메모리·worklog가 정본.
   한 컨텍스트가 원전·관례·실패 박물관을 연속으로 기억하는 것이
   이 프로젝트의 품질 원천이라 조각내지 않는다.
 - 하위 에이전트에는 작업에 필요한 최소 도구·최소 컨텍스트만.
-- **모델 계층 자동 배분** (.claude/agents/ frontmatter `model:`):
-  메인은 물리·판정·서사 (최상위 모델 직접), 위임은 자동으로
-  적정 모델에서 실행 — `light-worker`(haiku, 오탈자·검색·요약·
-  시험 실행), `reference-hunter`(sonnet, 원전 사냥),
-  `physics-critic`(opus, 백지 물리 리뷰). 메인이 "심부름" 판단
-  시 해당 에이전트에 던지면 모델이 자동 교체됨 (오너 수동 전환
-  불요). ⚠ nohup 배경 계산(NSGA 등)은 순수 파이썬 — 모델 무관.
+- **모델 4계층 배분** (메인 모델 + .claude/agents/ `model:`):
+  | 계층 | 몫 |
+  |---|---|
+  | **Fable** (최상위) | 신규 물리 유도·미묘한 캘리브레이션 — 논문 닫힌식 이식, 실패 모드가 숨은 보정계수 (예: 조종 프록시 CAL 1.15·Jensen 닫힌식). 최상위가 실제로 버는 지점만 |
+  | **Opus** (메인 기본) | 표준 물리 구현·원전 대조·회차 서사·게이트 판정. 백로그 대부분 여기 (Fable와 무차) |
+  | **Sonnet** (`reference-hunter`·범용) | 원전 사냥·국소 배선·UI 글루·문서 구조·국소 물리 가드 TDD |
+  | **Haiku** (`light-worker`) | 오탈자·서식·검색·요약·수집 정리·시험 실행 |
+  - **critic은 opus 고정 (다운그레이드 아님)**: 메인이 Fable/Opus
+    일 때 리뷰어가 **다른 모델**이라야 훈련·맹점이 달라 진짜 독립
+    검증 (집단 사고 차단 — 관점 다양성 > 모델 급수). `physics-critic`
+    (opus) 유지가 자산.
+  - 메인이 "심부름·국소 배선" 판단 시 하위 에이전트에 던지면 모델
+    자동 교체 (오너 수동 전환 불요). 신규 물리 유도 회차면 오너가
+    `/model claude-fable-5`로 메인 승급 권장.
+  - ⚠ nohup 배경 계산(NSGA 등)은 순수 파이썬 — 모델 무관.
 
 ## 2. 백지 독립 리뷰 (Need-to-Know Critic)
 
@@ -56,10 +64,10 @@ superpowers 워크플로·main 직커밋)은 메모리·worklog가 정본.
 
 | 백로그 | 추천 |
 |---|---|
-| advance 프록시 (Nomoto 1차, 저순위) | 메인 Opus/Fable |
-| Jensen 닫힌식 heave/pitch 프록시 | 메인 Opus/Fable |
-| Molland 쌍동 간섭 원전 → 저항 승급 | reference-hunter → 메인 |
-| 알루 HSLC·ISO 12215-5·좌굴(S11.5) 구조 | reference-hunter → 메인 |
+| Jensen 닫힌식 heave/pitch 프록시 | **Fable** (신규 유도) |
+| advance 프록시 (Nomoto 1차, 저순위) | **Fable** (캘리브레이션) |
+| Molland 쌍동 간섭 원전 → 저항 승급 | reference-hunter(sonnet) → **Opus** 반영 |
+| 알루 HSLC·ISO 12215-5·좌굴(S11.5) 구조 | reference-hunter(sonnet) → **Opus** 이식 |
 | #17 실선 수집 — workboat 배수량형·patrol 전기추진 표본 (수집 정리로 표적 확정) | light-worker (haiku) |
 | 운용 트림 한계·화물 시세 대역·부가질량 Motora | 데이터 대기 (수집 후) |
 
