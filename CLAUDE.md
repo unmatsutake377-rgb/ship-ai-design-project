@@ -45,6 +45,26 @@ superpowers 워크플로·main 직커밋)은 메모리·worklog가 정본.
 - 자동 승인 전면화(-y)는 하지 않는다: 가역 작업은 자동 진행,
   파괴 작업(삭제·강제 푸시·덮어쓰기)만 확인.
 
+## 백로그 × 추천 모델 (회차 시작 시 이 표로 브리핑)
+
+새 회차·"뭐 남았어" 질문 시, 남은 작업을 **추천 모델과 묶어**
+제시한다 (아래는 살아있는 표 — 완료 시 지우고 신규 백로그 추가).
+분류 기준: 물리 구현·원전 대조·캘리브레이션·회차 서사 = 메인
+(Opus/Fable), 원전 사냥 = reference-hunter(sonnet), 국소 배선·
+문서 구조 = sonnet, 오탈자·검색·수집 정리·시험 실행 = light-worker
+(haiku). nohup 배경 계산은 모델 무관(발사·감시 판단만 메인).
+
+| 백로그 | 추천 |
+|---|---|
+| advance 프록시 (Nomoto 1차, 저순위) | 메인 Opus/Fable |
+| Jensen 닫힌식 heave/pitch 프록시 | 메인 Opus/Fable |
+| Molland 쌍동 간섭 원전 → 저항 승급 | reference-hunter → 메인 |
+| solve_self_propulsion 브래킷 상한 검증 | sonnet (국소·수식 불변) |
+| Streamlit 갤러리 확장·3D 개선 | sonnet (UI 글루) |
+| #17 실선 데이터 수집·검수 | light-worker (haiku) |
+| 문서 오탈자·서식 훑기 | light-worker (haiku) |
+| 알루 HSLC·ISO 12215-5·좌굴(S11.5) 구조 | reference-hunter → 메인 |
+
 ## 고정 제약 (요약)
 
 - Ship-D 재배포·생성 선체 STL/렌더 커밋·공개 금지, 전선 CSV는
