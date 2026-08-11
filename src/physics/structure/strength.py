@@ -54,29 +54,49 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     m_sag = m_still_knm + m_wave_sag_knm
     m_design = max(abs(m_hog), abs(m_sag))
     z_req = m_design / (sigma_allow * 1000.0)     # [m³]
+    # 좌굴 압축판: 새깅=갑판 압축·호깅=선저 압축 (표준 보 부호).
+    from src.physics.structure.buckling import plate_buckling_check
+    sigma_f = material.yield_nmm2
 
     n_long = max(int(beam / s), 2)
     a_long = max(10.0, 0.3 * loa)                 # 종늑골 면적 cm² 개략
 
     iterations = 0
     passed = False
+    buck_deck = buck_bottom = None
     for _ in range(max_iter + 1):
         sec = assemble_midship(beam, depth, tb, ts, td,
                                n_bottom_long=n_long,
                                n_deck_long=n_long,
                                long_area_cm2=a_long)
-        if sec.z_deck_m3 >= z_req and sec.z_keel_m3 >= z_req:
+        # 항복: 두 판 모두 Z_req 이상
+        yield_deck = sec.z_deck_m3 >= z_req
+        yield_keel = sec.z_keel_m3 >= z_req
+        # 좌굴: 압축판만. 표준 보 굽힘 부호 — 호깅(∩, M>0)은 갑판
+        # 인장·선저 압축, 새깅(∪, M<0)은 갑판 압축·선저 인장.
+        # 따라서 갑판 좌굴 = 새깅 모멘트, 선저 좌굴 = 호깅 모멘트
+        # (백지 리뷰 [상] 부호 반전 검거 반영). 순두께 = 총 − tk.
+        sa_deck = abs(m_sag) / (sec.z_deck_m3 * 1000.0)
+        sa_bottom = abs(m_hog) / (sec.z_keel_m3 * 1000.0)
+        buck_deck = plate_buckling_check(max(td - tk, 0.5), s,
+                                         sa_deck, sigma_f)
+        buck_bottom = plate_buckling_check(max(tb - tk, 0.5), s,
+                                           sa_bottom, sigma_f)
+        deck_ok = yield_deck and buck_deck["passed"]
+        keel_ok = yield_keel and buck_bottom["passed"]
+        if deck_ok and keel_ok:
             passed = True
             break
-        governing = "deck" if sec.z_deck_m3 < sec.z_keel_m3 else "keel"
-        # 적응 스텝: 부족비 비례 점프 (큰 부족 = 큰 걸음) + 최소 0.5
-        deficit = z_req / max(min(sec.z_deck_m3, sec.z_keel_m3), 1e-9)
-        if governing == "deck":
-            step = max(T_STEP_MM, td * (deficit - 1.0) * 0.6)
-            td += step
-        else:
-            step = max(T_STEP_MM, tb * (deficit - 1.0) * 0.6)
-            tb += step
+        # 불합격 판 증육 (항복·좌굴 공통 지렛대 = 두께↑ → Z↑·σ_E↑).
+        # 스텝: 항복 부족비 + 좌굴 부족비 중 큰 쪽 비례 (최소 0.5).
+        if not deck_ok:
+            yd = z_req / max(sec.z_deck_m3, 1e-9)
+            bd = sa_deck / max(buck_deck["sigma_c_nmm2"], 1e-9)
+            td += max(T_STEP_MM, td * (max(yd, bd) - 1.0) * 0.5)
+        if not keel_ok:
+            yk = z_req / max(sec.z_keel_m3, 1e-9)
+            bk = sa_bottom / max(buck_bottom["sigma_c_nmm2"], 1e-9)
+            tb += max(T_STEP_MM, tb * (max(yk, bk) - 1.0) * 0.5)
         iterations += 1
 
     governing = "deck" if sec.z_deck_m3 <= sec.z_keel_m3 else "keel"
@@ -86,20 +106,17 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     if loa < 90.0:
         note += "; 소형 하중 = 준정적 표준파 (IACS 범위 밖, C급)"
 
-    # 판 좌굴 성적표 (IACS S11.5, 압축 판) — 지배 위치 판이 종강도
-    # 압축응력 σ_a를 받는다 (호깅=갑판·새깅=선저 압축). 게이트
-    # 승격 아님 = 증육 루프 연동 백로그 (CII 선례 정직). σ_F는
-    # 재료 항복 (연강 235). 순두께 = 총두께 − tk (부식 여유 근사).
-    from src.physics.structure.buckling import plate_buckling_check
-    z_gov = min(sec.z_deck_m3, sec.z_keel_m3)
-    sigma_a = m_design / (max(z_gov, 1e-9) * 1000.0)   # N/mm²
-    t_gov = td if governing == "deck" else tb
-    buckling = plate_buckling_check(
-        t_net_mm=max(t_gov - tk, 0.5), s_m=s,
-        sigma_a_nmm2=sigma_a, sigma_f_nmm2=material.yield_nmm2)
-    buckling["note"] = ("판 좌굴 성적표 (S11.5 압축 판; 보강재·전단"
-                        " 좌굴 미구현 C급) — 게이트 승격은 증육 루프"
-                        " 연동 백로그")
+    # 판 좌굴 (IACS S11.5, 압축 판) — 하드 게이트 연동 (수렴 루프가
+    # 항복+좌굴 둘 다 만족까지 증육). 갑판=새깅 압축·선저=호깅 압축.
+    # 정직 범위 C급: 압축 판만 (보강재 기둥·비틀림·전단 좌굴 미구현).
+    # 정직 각주: 항복 Z는 총두께·좌굴 σ_E는 순두께(총−tk) 사용 —
+    # IACS 관례(부식 후 좌굴)이나 기준 불일치 명시 (백지 리뷰 지적).
+    buckling = {
+        "deck": buck_deck, "bottom": buck_bottom,
+        "passed": bool(buck_deck["passed"] and buck_bottom["passed"]),
+        "note": ("판 좌굴 하드 게이트 (S11.5; 압축 판만 — 보강재·"
+                 "전단 좌굴 C급 미구현). 갑판=새깅·선저=호깅 압축"),
+    }
 
     return {
         "passed": passed,

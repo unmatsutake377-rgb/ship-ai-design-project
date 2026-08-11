@@ -58,17 +58,35 @@ def test_plate_buckling_check_pass_fail():
     assert not bad["passed"] and bad["sigma_c_nmm2"] < 160.0
 
 
-def test_gate_reports_buckling():
-    """게이트 통합 — 종강도 리포트에 좌굴 성적표 병기 (게이트
-    승격 아님 — 증육 루프 연동 백로그, CII 선례 정직)."""
+def test_gate_hard_buckling_converges():
+    """게이트 승격 — 좌굴이 증육 수렴 루프에 하드 연동. 100m
+    화물선이 항복+좌굴 둘 다 통과할 때까지 갑판·선저 증육 →
+    passed=True·양 판 좌굴 합격. 항복만이던 시절(갑판 8mm)보다
+    지배 압축판이 두꺼워짐 (좌굴이 항복보다 먼저 지배 실증)."""
     from src.physics.structure.materials import MATERIALS
     from src.physics.structure.strength import longitudinal_strength
     r = longitudinal_strength(
         loa=100.0, beam=16.2, depth=8.5, draft=5.9,
         m_still_knm=-55000.0, m_wave_hog_knm=190000.0,
         m_wave_sag_knm=-255000.0, material=MATERIALS["mild_steel"])
-    assert "buckling" in r
+    assert r["passed"] is True
     b = r["buckling"]
-    assert "sigma_c_nmm2" in b and "sigma_a_nmm2" in b
-    assert isinstance(b["passed"], bool)
-    assert "성적표" in b["note"] or "게이트" in b["note"]
+    # 하드 게이트 = 갑판·선저 압축판 좌굴 각각 통과
+    assert b["deck"]["passed"] and b["bottom"]["passed"]
+    # 좌굴이 항복보다 먼저 지배 → 압축판이 항복 전용(8mm)보다 두꺼움
+    assert r["t_bottom_mm"] > 8.0 or r["t_deck_mm"] > 8.0
+
+
+def test_gate_buckling_correct_compression_side():
+    """물리 방향 — 표준 보 부호: 새깅=갑판 압축·호깅=선저 압축
+    (백지 리뷰 [상] 부호 반전 검거 반영). |새깅 −310000| >
+    |호깅 135000| → 갑판 압축이 더 커 갑판 좌굴이 지배."""
+    from src.physics.structure.materials import MATERIALS
+    from src.physics.structure.strength import longitudinal_strength
+    r = longitudinal_strength(
+        loa=100.0, beam=16.2, depth=8.5, draft=5.9,
+        m_still_knm=-55000.0, m_wave_hog_knm=190000.0,
+        m_wave_sag_knm=-255000.0, material=MATERIALS["mild_steel"])
+    b = r["buckling"]
+    # 새깅(갑판 압축)이 호깅(선저 압축)보다 크다 → 갑판 σ_a 지배
+    assert b["deck"]["sigma_a_nmm2"] > b["bottom"]["sigma_a_nmm2"]
