@@ -59,11 +59,9 @@ superpowers 워크플로·main 직커밋)은 메모리·worklog가 정본.
 | advance 프록시 (Nomoto 1차, 저순위) | 메인 Opus/Fable |
 | Jensen 닫힌식 heave/pitch 프록시 | 메인 Opus/Fable |
 | Molland 쌍동 간섭 원전 → 저항 승급 | reference-hunter → 메인 |
-| solve_self_propulsion 브래킷 상한 검증 | sonnet (국소·수식 불변) |
-| Streamlit 갤러리 확장·3D 개선 | sonnet (UI 글루) |
-| #17 실선 데이터 수집·검수 | light-worker (haiku) |
-| 문서 오탈자·서식 훑기 | light-worker (haiku) |
 | 알루 HSLC·ISO 12215-5·좌굴(S11.5) 구조 | reference-hunter → 메인 |
+| #17 실선 수집 — workboat 배수량형·patrol 전기추진 표본 (수집 정리로 표적 확정) | light-worker (haiku) |
+| 운용 트림 한계·화물 시세 대역·부가질량 Motora | 데이터 대기 (수집 후) |
 
 ## 고정 제약 (요약)
 
