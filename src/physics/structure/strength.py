@@ -85,8 +85,25 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
             else f"수렴 한도({max_iter}회) 초과 — 치수·재료 재검토")
     if loa < 90.0:
         note += "; 소형 하중 = 준정적 표준파 (IACS 범위 밖, C급)"
+
+    # 판 좌굴 성적표 (IACS S11.5, 압축 판) — 지배 위치 판이 종강도
+    # 압축응력 σ_a를 받는다 (호깅=갑판·새깅=선저 압축). 게이트
+    # 승격 아님 = 증육 루프 연동 백로그 (CII 선례 정직). σ_F는
+    # 재료 항복 (연강 235). 순두께 = 총두께 − tk (부식 여유 근사).
+    from src.physics.structure.buckling import plate_buckling_check
+    z_gov = min(sec.z_deck_m3, sec.z_keel_m3)
+    sigma_a = m_design / (max(z_gov, 1e-9) * 1000.0)   # N/mm²
+    t_gov = td if governing == "deck" else tb
+    buckling = plate_buckling_check(
+        t_net_mm=max(t_gov - tk, 0.5), s_m=s,
+        sigma_a_nmm2=sigma_a, sigma_f_nmm2=material.yield_nmm2)
+    buckling["note"] = ("판 좌굴 성적표 (S11.5 압축 판; 보강재·전단"
+                        " 좌굴 미구현 C급) — 게이트 승격은 증육 루프"
+                        " 연동 백로그")
+
     return {
         "passed": passed,
+        "buckling": buckling,
         "z_required_m3": z_req,
         "z_deck_m3": sec.z_deck_m3,
         "z_keel_m3": sec.z_keel_m3,
