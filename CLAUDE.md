@@ -16,6 +16,13 @@ superpowers 워크플로·main 직커밋)은 메모리·worklog가 정본.
   한 컨텍스트가 원전·관례·실패 박물관을 연속으로 기억하는 것이
   이 프로젝트의 품질 원천이라 조각내지 않는다.
 - 하위 에이전트에는 작업에 필요한 최소 도구·최소 컨텍스트만.
+- **모델 계층 자동 배분** (.claude/agents/ frontmatter `model:`):
+  메인은 물리·판정·서사 (최상위 모델 직접), 위임은 자동으로
+  적정 모델에서 실행 — `light-worker`(haiku, 오탈자·검색·요약·
+  시험 실행), `reference-hunter`(sonnet, 원전 사냥),
+  `physics-critic`(opus, 백지 물리 리뷰). 메인이 "심부름" 판단
+  시 해당 에이전트에 던지면 모델이 자동 교체됨 (오너 수동 전환
+  불요). ⚠ nohup 배경 계산(NSGA 등)은 순수 파이썬 — 모델 무관.
 
 ## 2. 백지 독립 리뷰 (Need-to-Know Critic)
 
