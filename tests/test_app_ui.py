@@ -58,5 +58,31 @@ def test_app_pages_importable():
     구조라 ast 파싱만 — 렌더는 수동 브라우저 검증 몫)."""
     import ast
     from pathlib import Path
-    for p in ["app/main.py", "app/pages/1_라이브_설계.py"]:
+    for p in ["app/main.py", "app/pages/1_라이브_설계.py",
+              "app/pages/2_갤러리.py"]:
         ast.parse(Path(p).read_text(), filename=p)
+
+
+def test_pareto_front_loader_missing_dir(tmp_path):
+    """전선 로더 — 자산 없으면 정직 None (앱은 안내문 표시)."""
+    from app.ui.pareto import load_verified_front
+    assert load_verified_front(tmp_path) is None
+
+
+def test_pareto_front_loader_merges_and_filters(tmp_path):
+    """evo(설계값) + recheck(판정) 병합 — 완전 검증만 남김."""
+    import pandas as pd
+    from app.ui.pareto import load_verified_front
+    pd.DataFrame({
+        "speed_ms": [5.0, 6.0], "loa": [99.0, 99.0],
+        "cb": [0.48, 0.47], "transport_usd_per_tnm": [4e-4, 9e-4],
+        "vector_json": ["[1]", "[2]"],
+    }).to_csv(tmp_path / "pareto_large_v4_evo.csv", index=False)
+    pd.DataFrame({
+        "idx": [0, 1], "full_passed": [True, False],
+        "sk_roll_rms": [0.3, 0.4], "mv_dt": [4.9, 5.2],
+    }).to_csv(tmp_path / "pareto_v4_full_recheck.csv", index=False)
+    df = load_verified_front(tmp_path)
+    assert len(df) == 1                    # 완전 검증만
+    assert df.iloc[0]["speed_ms"] == 5.0
+    assert "vector_json" not in df.columns  # 라이선스 — 화면 비노출
