@@ -79,7 +79,7 @@ superpowers 워크플로·main 직커밋)은 메모리·worklog가 정본.
 |---|---|
 | Jensen 닫힌식 heave/pitch 프록시 | **Fable** (신규 유도) |
 | advance 프록시 (Nomoto 1차, 저순위) | **Fable** (캘리브레이션) |
-| Molland 쌍동 간섭 원전 → 저항 승급 | reference-hunter(sonnet) → **Opus** 반영 |
+| Molland 쌍동 간섭 (원전 위치 확정 SSR 71/72 — Anubis 봇 차단, 오너 브라우저 표 확보 대기) | 오너 수집 → Opus 반영 |
 | 알루 HSLC·ISO 12215-5·좌굴(S11.5) 구조 | reference-hunter(sonnet) → **Opus** 이식 |
 | #17 실선 수집 — workboat 배수량형·patrol 전기추진 표본 (수집 정리로 표적 확정) | light-worker (haiku) |
 | 운용 트림 한계·화물 시세 대역·부가질량 Motora | 데이터 대기 (수집 후) |

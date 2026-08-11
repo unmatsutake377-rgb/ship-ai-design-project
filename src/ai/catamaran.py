@@ -54,8 +54,15 @@ def catamaran_resistance(dims: MainDimensions,
     r = total_resistance_mesh(demi, dims.loa, draft, speed_ms)
     return {"demihull_n": r.total, "total_n": 2.0 * r.total,
             "rf_n": 2.0 * r.rf, "rw_n": 2.0 * r.rw,
-            "note": "선체 간 파 간섭 무시 (C급) — Molland 문헌 확보"
-                    " 시 승급 (통상 s/L 대역 수 % 오차)"}
+            # 간섭 무시 C급 유지 (2026-08-11 원전 위치 확정·수치
+            # 미확인). 원전: Insel & Molland (1992) Trans RINA 134 —
+            # 간섭인자 σ(점성)·τ(조파) 정의 / Molland-Wellicome-Couser
+            # (1994) Southampton Ship Science Report 71·72, s/L
+            # 0.2~0.5·Fn 0.1~1.0 계통 실험. 무료 공개본 eprints.
+            # soton.ac.uk/46442·/46441 이나 Anubis 봇 차단으로 자동
+            # 접근 불가 — 오너 브라우저로 표 확보 시 (1+간섭) 승급.
+            "note": "선체 간 파 간섭 무시 (C급) — 원전 위치 확정 "
+                    "(Molland SSR 71/72), 표 접근 대기"}
 
 
 def seakeeping_gate_catamaran(dims: MainDimensions,
