@@ -38,10 +38,22 @@ else:
         marker=dict(size=9, color=front["cb"],
                     colorscale="Viridis", showscale=True,
                     colorbar=dict(title="Cb"))))
+    best = front.loc[front["transport_usd_per_tnm"].idxmin()]
+    fig.add_trace(go.Scatter(
+        x=[best["speed_ms"] * 1.9438],
+        y=[best["transport_usd_per_tnm"] * 1000.0],
+        mode="markers", name="추천 경제형",
+        hoverinfo="skip",
+        marker=dict(symbol="star", size=22, color="gold",
+                    line=dict(color="red", width=2))))
     fig.update_layout(xaxis_title="속도 [kn]",
                       yaxis_title="수송단가 [$/kt·nm]",
                       height=450, margin=dict(l=0, r=0, t=10, b=0))
     st.plotly_chart(fig, use_container_width=True)
+    st.success(
+        f"추천 경제형: {best['speed_ms'] * 1.9438:.1f} kn · "
+        f"Cb {best['cb']:.3f} · "
+        f"단가 {best['transport_usd_per_tnm'] * 1000:.3f} $/kt·nm")
     st.metric("완전 검증 전선", f"{len(front)}척",
               help="fast 6중 + full 재검(스트립 내항·MMG 조종) "
                    "전부 통과")

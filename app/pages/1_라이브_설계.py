@@ -71,10 +71,15 @@ if "report" in st.session_state:
     with left:
         st.subheader("3D 선형")
         d = st.session_state["mesh3d"]
-        fig = go.Figure(go.Mesh3d(**d, color="steelblue",
-                                  opacity=0.9))
-        fig.update_layout(scene_aspectmode="data",
-                          margin=dict(l=0, r=0, t=0, b=0))
+        fig = go.Figure(go.Mesh3d(
+            **d, color="steelblue", opacity=0.9,
+            lighting=dict(ambient=0.5, diffuse=0.8, specular=0.3,
+                          roughness=0.5, fresnel=0.2),
+            lightposition=dict(x=100, y=-100, z=200)))
+        fig.update_layout(
+            scene_aspectmode="data",
+            scene_camera=dict(eye=dict(x=1.5, y=-1.5, z=0.8)),
+            margin=dict(l=0, r=0, t=0, b=0))
         st.plotly_chart(fig, use_container_width=True)
     with right:
         st.subheader("성적표")
