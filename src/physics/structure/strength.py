@@ -33,7 +33,12 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
                           max_iter: int = 20) -> dict:
     """종강도 판정 — 합격 두께·단면계수·수렴 기록 반환."""
     f1 = material.f1
-    sigma_allow = SIGMA_BASE_NMM2 * f1
+    # 허용응력: ISO 설계응력 σ_d 있으면 그것 (알루 5083 — KS V ISO
+    # 12215-5 표 B.2 정본, 용접 항복 125를 허용처럼 쓰던 과대 정정),
+    # 없으면 IACS UR S11 프레임 175·f1 (강 대형 상선).
+    sigma_allow = (material.design_stress_nmm2
+                   if material.design_stress_nmm2 is not None
+                   else SIGMA_BASE_NMM2 * f1)
     sigma_local = 120.0 * f1               # 판 국부 허용 (원전 p89)
     s = spacing_m if spacing_m is not None else default_spacing_m(loa)
     span = max(2.5 * s, 0.5)
@@ -79,9 +84,11 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
         sa_deck = abs(m_sag) / (sec.z_deck_m3 * 1000.0)
         sa_bottom = abs(m_hog) / (sec.z_keel_m3 * 1000.0)
         buck_deck = plate_buckling_check(max(td - tk, 0.5), s,
-                                         sa_deck, sigma_f)
+                                         sa_deck, sigma_f,
+                                         e_nmm2=material.e_nmm2)
         buck_bottom = plate_buckling_check(max(tb - tk, 0.5), s,
-                                           sa_bottom, sigma_f)
+                                           sa_bottom, sigma_f,
+                                           e_nmm2=material.e_nmm2)
         deck_ok = yield_deck and buck_deck["passed"]
         keel_ok = yield_keel and buck_bottom["passed"]
         if deck_ok and keel_ok:

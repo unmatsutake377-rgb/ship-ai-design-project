@@ -49,11 +49,28 @@ def critical_buckling_stress(sigma_e_nmm2: float,
     return sigma_f_nmm2 * (1.0 - sigma_f_nmm2 / (4.0 * sigma_e_nmm2))
 
 
+def stiffener_web_slenderness_max(e_nmm2: float,
+                                  sigma_yw_nmm2: float) -> float:
+    """보강재 플랫바 웨브 세장비 상한 h/t_w ≤ 0.50·√(E/σ_yw).
+
+    원전 KS V ISO 12215-5 표 B.2 §1 (금속 보강재 국부 좌굴 방지 —
+    실제응력=설계응력 σ_d 조건). 웨브가 이 비를 넘으면 좌굴.
+    사전계산값(§2): 강 E24 15·알루 5083 12. (T·top hat 웨브는
+    전단 τ_yw 기준 1.29 계수 — 필요 시 별도. C급: 압축 웨브만.)
+    """
+    return 0.50 * (e_nmm2 / sigma_yw_nmm2) ** 0.5
+
+
 def plate_buckling_check(t_net_mm: float, s_m: float,
                          sigma_a_nmm2: float, sigma_f_nmm2: float,
-                         psi: float = 1.0, beta: float = 1.0) -> dict:
-    """압축 판 좌굴 판정 σ_c ≥ β·σ_a (원전 S11.5.5.1)."""
-    se = elastic_plate_buckling_stress(t_net_mm, s_m, psi)
+                         psi: float = 1.0, beta: float = 1.0,
+                         e_nmm2: float = E_STEEL_NMM2) -> dict:
+    """압축 판 좌굴 판정 σ_c ≥ β·σ_a (원전 S11.5.5.1).
+
+    e_nmm2: 재료 탄성계수 — 반드시 재료값 전달 (알루 7.0e4·강
+    2.06e5). σ_E ∝ E라 강 기본값으로 알루를 계산하면 2.94배 과대
+    = 비보수 오답 (백지 리뷰 [상] 검거)."""
+    se = elastic_plate_buckling_stress(t_net_mm, s_m, psi, e_nmm2)
     sc = critical_buckling_stress(se, sigma_f_nmm2)
     demand = beta * sigma_a_nmm2
     return {
