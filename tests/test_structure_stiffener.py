@@ -51,8 +51,47 @@ def test_gate_reports_stiffener_buckling():
         MATERIALS["mild_steel"])
     assert "stiffener" in r["buckling"]
     st = r["buckling"]["stiffener"]
-    assert "web_height_mm" in st and "slenderness" in st
+    assert st["profile"] == "tee"          # 실선 표준 T바
+    assert "web_height_mm" in st and "web_slenderness" in st
+    assert "flange_width_mm" in st
     assert isinstance(st["passed"], bool)
-    # 합격 설계면 보강재도 세장비 통과
+    # 합격 설계면 보강재도 세장비(웨브·플랜지) 통과
     if r["passed"]:
         assert st["passed"]
+
+
+def test_tee_section_modulus_hand_calc():
+    """T바 단면계수 손계산: 웨브 200×10·플랜지 80×10 → Z ≈ 99.8 cm³
+    (부착판 무시 바 단독, 웨브 끝 극한섬유 기준)."""
+    from src.physics.structure.stiffener import tee_section_modulus
+    z = tee_section_modulus(h_w_mm=200.0, t_w_mm=10.0,
+                            b_f_mm=80.0, t_f_mm=10.0)
+    assert z == pytest.approx(99.8, abs=1.0)
+
+
+def test_tee_web_shear_slenderness_matches_iso():
+    """T웨브 전단 세장비 한계 1.29·√(E/τ_yw), τ_yw=σ_yw/√3 —
+    표 B.2 §2 값 강 T웨브 50·알루 5083 40 재현."""
+    from src.physics.structure.stiffener import (
+        stiffener_web_shear_slenderness_limit,
+    )
+    assert stiffener_web_shear_slenderness_limit(
+        210000.0, 235.0) == pytest.approx(50.0, abs=1.0)
+    assert stiffener_web_shear_slenderness_limit(
+        70000.0, 125.0) == pytest.approx(40.0, abs=1.0)
+
+
+def test_tee_lighter_than_flat_bar():
+    """T바가 같은 Z에 플랫바보다 가벼움 (웨브 슬렌더 허용 크므로)
+    — 실선이 T/L 쓰는 이유. 둘 다 세장비 통과."""
+    from src.physics.structure.stiffener import (
+        design_flat_bar_stiffener,
+        design_tee_stiffener,
+    )
+    z = 150.0
+    flat = design_flat_bar_stiffener(z, 235.0, 210000.0)
+    tee = design_tee_stiffener(z, 235.0, 210000.0)
+    assert tee["passed"] and flat["passed"]
+    assert tee["area_cm2"] < flat["area_cm2"]
+    assert tee["web_slenderness"] <= tee["web_slenderness_max"] + 1e-6
+    assert tee["flange_slenderness"] <= tee["flange_slenderness_max"] + 1e-6

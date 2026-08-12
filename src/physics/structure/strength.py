@@ -119,9 +119,11 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     # 으로 항상 수렴하나, 설계 성립 여부·최종 치수를 확정). girder
     # 단면 모델(a_long)과 분리 — NSGA 파급 없이 국부 보강재만.
     from src.physics.structure.scantlings import stiffener_modulus_cm3
-    from src.physics.structure.stiffener import design_flat_bar_stiffener
+    from src.physics.structure.stiffener import design_tee_stiffener
     z_stiff = stiffener_modulus_cm3(pb, s, span, f1)   # 선저 요구 [cm³]
-    stiff = design_flat_bar_stiffener(
+    # 실선 표준 T바 (웨브 전단·플랜지 세장비 — 플랫바보다 경량·
+    # 현실적). σ_yw = 재료 항복 (표 B.2 세장비 변수는 σ_yw).
+    stiff = design_tee_stiffener(
         z_stiff, material.yield_nmm2, material.e_nmm2)
 
     # 판 좌굴 (IACS S11.5, 압축 판) + 보강재 좌굴 (ISO) — 하드 게이트.
