@@ -113,17 +113,32 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     if loa < 90.0:
         note += "; 소형 하중 = 준정적 표준파 (IACS 범위 밖, C급)"
 
-    # 판 좌굴 (IACS S11.5, 압축 판) — 하드 게이트 연동 (수렴 루프가
-    # 항복+좌굴 둘 다 만족까지 증육). 갑판=새깅 압축·선저=호깅 압축.
-    # 정직 범위 C급: 압축 판만 (보강재 기둥·비틀림·전단 좌굴 미구현).
-    # 정직 각주: 항복 Z는 총두께·좌굴 σ_E는 순두께(총−tk) 사용 —
-    # IACS 관례(부식 후 좌굴)이나 기준 불일치 명시 (백지 리뷰 지적).
+    # 보강재 좌굴 (KS V ISO 12215-5 표 B.2 §1) — 선저 국부 압력의
+    # 요구 단면계수를 만족하며 웨브 세장비 h_w/t_w ≤ 0.50·√(E/σ_yw)
+    # 인 플랫바를 설계·판정. 하드 게이트 연동 (플랫바는 웨브 증육
+    # 으로 항상 수렴하나, 설계 성립 여부·최종 치수를 확정). girder
+    # 단면 모델(a_long)과 분리 — NSGA 파급 없이 국부 보강재만.
+    from src.physics.structure.scantlings import stiffener_modulus_cm3
+    from src.physics.structure.stiffener import design_flat_bar_stiffener
+    z_stiff = stiffener_modulus_cm3(pb, s, span, f1)   # 선저 요구 [cm³]
+    stiff = design_flat_bar_stiffener(
+        z_stiff, material.yield_nmm2, material.e_nmm2)
+
+    # 판 좌굴 (IACS S11.5, 압축 판) + 보강재 좌굴 (ISO) — 하드 게이트.
+    # 갑판=새깅 압축·선저=호깅 압축 (압축판만). 정직 C급: 압축 판·
+    # 플랫바 웨브 세장비 (T/L·전단·기둥 좌굴 미구현). 항복 Z는 총
+    # 두께·좌굴 σ_E는 순두께 사용 (IACS 부식 후 관례, 기준 불일치
+    # 명시 — 백지 리뷰 지적).
     buckling = {
-        "deck": buck_deck, "bottom": buck_bottom,
-        "passed": bool(buck_deck["passed"] and buck_bottom["passed"]),
-        "note": ("판 좌굴 하드 게이트 (S11.5; 압축 판만 — 보강재·"
-                 "전단 좌굴 C급 미구현). 갑판=새깅·선저=호깅 압축"),
+        "deck": buck_deck, "bottom": buck_bottom, "stiffener": stiff,
+        "passed": bool(buck_deck["passed"] and buck_bottom["passed"]
+                       and stiff["passed"]),
+        "note": ("판+보강재 좌굴 하드 게이트 (S11.5 압축 판 + KS V "
+                 "ISO 12215-5 플랫바 웨브 세장비; T/L·전단 C급). "
+                 "갑판=새깅·선저=호깅 압축"),
     }
+    # 보강재 좌굴 불성립(웨브 상한 초과) 시 종합 판정에도 반영
+    passed = bool(passed and stiff["passed"])
 
     return {
         "passed": passed,
