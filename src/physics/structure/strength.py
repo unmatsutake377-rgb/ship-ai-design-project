@@ -64,7 +64,22 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     sigma_f = material.yield_nmm2
 
     n_long = max(int(beam / s), 2)
-    a_long = max(10.0, 0.3 * loa)                 # 종늑골 면적 cm² 개략
+    # 실보강재 단면적 (마법숫자 0.3·loa 대체): 선저·갑판을 각자
+    # 국부 압력(pb·pd)의 요구 단면계수로 실제 T바 설계 → 그 단면적.
+    # 판두께 무관이라 루프 밖 1회. girder 정밀화.
+    # 정직 각주 (백지 리뷰): 갑판 늑골은 규칙 최소 갑판압력 pd만
+    # 지배 → 청수·화물 하중 없는 배는 작게 나옴 (girder엔 보수적
+    # =안전측, 실제 갑판 늑골 치수 대표는 아님 — C급).
+    from src.physics.structure.scantlings import stiffener_modulus_cm3
+    from src.physics.structure.stiffener import design_tee_stiffener
+    stiff_bottom = design_tee_stiffener(
+        stiffener_modulus_cm3(pb, s, span, f1),
+        material.yield_nmm2, material.e_nmm2)
+    stiff_deck = design_tee_stiffener(
+        stiffener_modulus_cm3(pd, s, span, f1),
+        material.yield_nmm2, material.e_nmm2)
+    a_long_b = stiff_bottom["area_cm2"]
+    a_long_d = stiff_deck["area_cm2"]
 
     iterations = 0
     passed = False
@@ -73,7 +88,8 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
         sec = assemble_midship(beam, depth, tb, ts, td,
                                n_bottom_long=n_long,
                                n_deck_long=n_long,
-                               long_area_cm2=a_long)
+                               long_area_cm2=a_long_b,
+                               deck_long_area_cm2=a_long_d)
         # 항복: 두 판 모두 Z_req 이상
         yield_deck = sec.z_deck_m3 >= z_req
         yield_keel = sec.z_keel_m3 >= z_req
@@ -118,13 +134,9 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     # 인 플랫바를 설계·판정. 하드 게이트 연동 (플랫바는 웨브 증육
     # 으로 항상 수렴하나, 설계 성립 여부·최종 치수를 확정). girder
     # 단면 모델(a_long)과 분리 — NSGA 파급 없이 국부 보강재만.
-    from src.physics.structure.scantlings import stiffener_modulus_cm3
-    from src.physics.structure.stiffener import design_tee_stiffener
-    z_stiff = stiffener_modulus_cm3(pb, s, span, f1)   # 선저 요구 [cm³]
-    # 실선 표준 T바 (웨브 전단·플랜지 세장비 — 플랫바보다 경량·
-    # 현실적). σ_yw = 재료 항복 (표 B.2 세장비 변수는 σ_yw).
-    stiff = design_tee_stiffener(
-        z_stiff, material.yield_nmm2, material.e_nmm2)
+    # 보강재 좌굴 판정 = 선저 T바 (최대 압력·girder에도 실장). 루프
+    # 밖에서 이미 설계 (stiff_bottom) — 세장비 통과 여부가 게이트.
+    stiff = stiff_bottom
 
     # 판 좌굴 (IACS S11.5, 압축 판) + 보강재 좌굴 (ISO) — 하드 게이트.
     # 갑판=새깅 압축·선저=호깅 압축 (압축판만). 정직 C급: 압축 판·

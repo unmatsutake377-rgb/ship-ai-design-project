@@ -25,21 +25,28 @@ def assemble_midship(beam: float, depth: float,
                      t_bottom_mm: float, t_side_mm: float,
                      t_deck_mm: float,
                      n_bottom_long: int, n_deck_long: int,
-                     long_area_cm2: float) -> MidshipSection:
+                     long_area_cm2: float,
+                     deck_long_area_cm2: float | None = None
+                     ) -> MidshipSection:
     """판 3종 + 종늑골 → 중립축·I·단면계수.
 
-    종늑골: 선저군 z=0.05D, 갑판군 z=0.95D 점면적 (부착판 근방)."""
+    종늑골: 선저군 z=0.05D, 갑판군 z=0.95D 점면적 (부착판 근방).
+    long_area_cm2 = 선저 늑골 단면적, deck_long_area_cm2 = 갑판
+    (None이면 선저값 동일 — 하위호환). 실보강재는 압력이 큰 선저
+    가 더 큼."""
     tb, ts, td = (t_bottom_mm * 1e-3, t_side_mm * 1e-3,
                   t_deck_mm * 1e-3)
-    a_long = long_area_cm2 * 1e-4
+    a_long_b = long_area_cm2 * 1e-4
+    a_long_d = ((deck_long_area_cm2 if deck_long_area_cm2 is not None
+                 else long_area_cm2) * 1e-4)
     # (면적, z중심, 자체 I)
     elems = [
         (beam * tb, 0.0, beam * tb ** 3 / 12.0),          # 선저
         (beam * td, depth, beam * td ** 3 / 12.0),        # 갑판
         (2.0 * ts * depth, depth / 2.0,
          2.0 * ts * depth ** 3 / 12.0),                   # 선측 2장
-        (n_bottom_long * a_long, 0.05 * depth, 0.0),      # 선저 종늑골
-        (n_deck_long * a_long, 0.95 * depth, 0.0),        # 갑판 종늑골
+        (n_bottom_long * a_long_b, 0.05 * depth, 0.0),    # 선저 종늑골
+        (n_deck_long * a_long_d, 0.95 * depth, 0.0),      # 갑판 종늑골
     ]
     area = sum(a for a, _, _ in elems)
     zn = sum(a * z for a, z, _ in elems) / max(area, 1e-12)
