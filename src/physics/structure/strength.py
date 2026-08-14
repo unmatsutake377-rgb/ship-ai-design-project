@@ -33,12 +33,22 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
                           max_iter: int = 20) -> dict:
     """종강도 판정 — 합격 두께·단면계수·수렴 기록 반환."""
     f1 = material.f1
-    # 허용응력: ISO 설계응력 σ_d 있으면 그것 (알루 5083 — KS V ISO
-    # 12215-5 표 B.2 정본, 용접 항복 125를 허용처럼 쓰던 과대 정정),
-    # 없으면 IACS UR S11 프레임 175·f1 (강 대형 상선).
-    sigma_allow = (material.design_stress_nmm2
-                   if material.design_stress_nmm2 is not None
-                   else SIGMA_BASE_NMM2 * f1)
+    # 허용응력 (종강도 = 갑판·선저 **판재** 극한섬유):
+    # - 소형 비강재(알루·FRP): ISO 표 17 **판재** 설계응력
+    #   (알루 112.5 = min(0.6σ_uw, 0.9σ_yw) — 보강재값 88은 과보수)
+    # - 강: ISO는 24 m 미만 소형 표준이라 대형 상선엔 IACS UR S11
+    #   프레임 175·f1 유지 (정직 — 규정 적용 범위 존중)
+    # 프레임은 재료가 **선언**한다 (이름 블랙리스트 금지 — 신규
+    # 강종이 조용히 ISO를 타면 40%+ 비보수 오답. 백지 리뷰 [중]).
+    if material.girder_frame == "IACS":
+        sigma_allow = SIGMA_BASE_NMM2 * f1
+    else:
+        if material.design_stress_plate_nmm2 is None:
+            raise ValueError(
+                f"{material.name}: girder_frame='ISO'인데 판재 "
+                "설계응력(design_stress_plate_nmm2) 없음 — 강 규정"
+                " 상수로 조용히 폴백 금지")
+        sigma_allow = material.design_stress_plate_nmm2
     sigma_local = 120.0 * f1               # 판 국부 허용 (원전 p89)
     s = spacing_m if spacing_m is not None else default_spacing_m(loa)
     span = max(2.5 * s, 0.5)
@@ -46,7 +56,7 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     pb = design_pressure_bottom(loa, beam, draft)
     ps = design_pressure_side(loa, beam, draft, depth)
     pd = design_pressure_deck(loa)
-    tk = 1.5 if material.name in ("mild_steel", "ah36") else 0.5
+    tk = material.corrosion_tk_mm    # FRP는 0 (부식 안 함)
     tb = max(plate_thickness_mm(pb, s, span, sigma_local, tk),
              min_thickness_mm(loa, f1, "bottom"))
     ts = max(plate_thickness_mm(ps, s, span, sigma_local, tk),
@@ -61,7 +71,12 @@ def longitudinal_strength(loa: float, beam: float, depth: float,
     z_req = m_design / (sigma_allow * 1000.0)     # [m³]
     # 좌굴 압축판: 새깅=갑판 압축·호깅=선저 압축 (표준 보 부호).
     from src.physics.structure.buckling import plate_buckling_check
-    sigma_f = material.yield_nmm2
+    # 좌굴 σ_F: 금속=항복, FRP=압축 극한 σ_uc (굽힘 σ_uf 아님 —
+    # 압축 좌굴 물리. 백지 리뷰 [중]). J-O 포물선은 금속 잔류응력
+    # 기반이라 FRP 적용은 C급 외삽 (정직 각주).
+    sigma_f = (material.sigma_compression_nmm2
+               if material.sigma_compression_nmm2 is not None
+               else material.yield_nmm2)
 
     n_long = max(int(beam / s), 2)
     # 실보강재 단면적 (마법숫자 0.3·loa 대체): 선저·갑판을 각자

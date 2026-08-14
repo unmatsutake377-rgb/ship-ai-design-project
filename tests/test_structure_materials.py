@@ -16,7 +16,8 @@ def test_material_catalog_values():
     assert al.yield_nmm2 < 200.0           # 용접부 기준 (모재 아님)
     assert "용접" in al.note
     frp = MATERIALS["frp_eglass"]
-    assert frp.grade == "C"                # 원전 미확보 정직 표기
+    assert frp.grade == "B"                # KS ISO 12215-5 표 C.9 정본
+    assert frp.design_stress_plate_nmm2 == pytest.approx(69.75, abs=0.1)
 
 
 def test_select_material_by_size():

@@ -51,10 +51,11 @@ def test_impossible_moment_honest_failure():
 
 
 def test_small_alu_path():
-    """3m 알루 USV — 허용응력 = ISO 설계응력 σ_d 88 (KS V ISO
-    12215-5 정본, 이전 175·f1=93 과대 정정)."""
+    """3m 알루 USV — 허용응력 = ISO **판재** 설계응력 112.5
+    (표 17: min(0.6σ_uw, 0.9σ_yw)). 88은 보강재값이라 종강도
+    (갑판·선저 판재)엔 과보수 — 판재/보강재 구분 정정."""
     from src.physics.structure.strength import longitudinal_strength
     r = longitudinal_strength(3.0, 1.2, 0.5, 0.3, 0.5, 1.0, -1.0,
                               MATERIALS["al5083"])
     assert r["passed"] is True
-    assert r["sigma_allow_nmm2"] == pytest.approx(88.0, abs=0.5)
+    assert r["sigma_allow_nmm2"] == pytest.approx(112.5, abs=0.5)
